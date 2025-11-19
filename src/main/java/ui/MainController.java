@@ -10,7 +10,9 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.PrintStream;
 import java.util.List;
+import java.util.stream.Collectors;
 import javafx.animation.FadeTransition;
+import javafx.animation.PauseTransition;
 import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -221,8 +223,19 @@ public class MainController implements GameClientStateListener {
 
         Button refreshButton = new Button("Refresh");
         refreshButton.setOnAction(e -> {
-            discoveryService.refreshAsync();
-            gamesList.setItems(FXCollections.observableArrayList(discoveryService.getCurrentGames()));
+            gamesList.setPlaceholder(new Label("Searching for games..."));
+            gamesList.getItems().clear();
+            discoveryService.refreshAsync(); // Clears the list and sends a new broadcast request
+
+            PauseTransition pause = new PauseTransition(Duration.millis(1200));
+            pause.setOnFinished(event -> {
+                List<DiscoveredGame> publicGames = discoveryService.getCurrentGames().stream()
+                    .filter(DiscoveredGame::isPublicGame)
+                    .collect(Collectors.toList());
+                gamesList.setItems(FXCollections.observableArrayList(publicGames));
+                gamesList.setPlaceholder(new Label("No public games found on the network."));
+            });
+            pause.play();
         });
 
         Button backButton = new Button("Back to Main Menu");

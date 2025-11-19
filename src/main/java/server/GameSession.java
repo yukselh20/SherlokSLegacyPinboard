@@ -25,6 +25,7 @@ public class GameSession {
   private final ReentrantLock sessionLock = new ReentrantLock();
   private GameSessionState state;
   private String gameCode;
+  private final boolean isPublic;
   private final GameSessionManager sessionManager;
   private final GameServer server;
   private final CaseData caseFile;
@@ -32,11 +33,19 @@ public class GameSession {
   private Thread broadcasterThread;
 
 
+  /**
+   * Overloaded constructor for backward compatibility. Assumes a public game.
+   */
+  public GameSession(CaseData caseFile, ClientSession hostPlayer, GameSessionManager manager, GameServer server) {
+    this(caseFile, hostPlayer, true, null, manager, server);
+  }
+
   public GameSession(CaseData caseFile, ClientSession hostPlayer, boolean isPublic, String assignedGameCode, GameSessionManager manager, GameServer server) {
     this.sessionId = UUID.randomUUID().toString();
     this.caseFile = Objects.requireNonNull(caseFile, "CaseData object cannot be null");
     this.sessionManager = Objects.requireNonNull(manager, "GameSessionManager cannot be null");
     this.server = Objects.requireNonNull(server, "GameServer cannot be null");
+    this.isPublic = isPublic;
     this.state = GameSessionState.LOADING;
     this.player1 = Objects.requireNonNull(hostPlayer, "Host player (player1) cannot be null");
     hostPlayer.setAssociatedGameSession(this);
@@ -395,7 +404,7 @@ public void playerCancelsLobby(String playerId) {
                 this.sessionId,
                 this.getCaseTitle(),
                 this.player1.getDisplayId(),
-                this.gameCode == null,
+                this.isPublic,
                 this.gameCode,
                 common.NetworkConstants.DEFAULT_PORT
         );

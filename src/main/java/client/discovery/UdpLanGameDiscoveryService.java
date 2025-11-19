@@ -50,7 +50,9 @@ public class UdpLanGameDiscoveryService implements LanGameDiscoveryService {
                     socket.receive(packet);
 
                     LanDiscoveryPacket packetInfo = objectMapper.readValue(packet.getData(), 0, packet.getLength(), LanDiscoveryPacket.class);
-                    logger.info("Successfully deserialized discovery packet from {}: Case='{}', Host='{}'", packet.getAddress().getHostAddress(), packetInfo.getCaseTitle(), packetInfo.getHostDisplayName());
+                    logger.info("Discovered LAN game: title='{}', host='{}', public={}, joinCode={}",
+                            packetInfo.getCaseTitle(), packetInfo.getHostDisplayName(),
+                            packetInfo.isPublicGame(), packetInfo.getJoinCode());
                     String hostIp = packet.getAddress().getHostAddress();
 
                     DiscoveredGame game = new DiscoveredGame(
