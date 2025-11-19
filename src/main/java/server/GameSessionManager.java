@@ -141,8 +141,11 @@ public class GameSessionManager {
     managerLock.lock();
     try {
       GameSession sessionToJoin = publicLobbiesById.get(sessionId);
-      if (sessionToJoin == null || sessionToJoin.isFull() || sessionToJoin.getState() != GameSessionState.WAITING_FOR_PLAYERS) {
+      if (sessionToJoin == null || sessionToJoin.getState() != GameSessionState.WAITING_FOR_PLAYERS) {
         return new JoinGameResponseDTO(false, "Public game not available for joining.", null);
+      }
+      if (sessionToJoin.isFull()) {
+        return new JoinGameResponseDTO(false, "This game is already full. Only two players can participate in this case.", null);
       }
       if (sessionToJoin.addPlayer(joiningClient)) {
         publicLobbiesById.remove(sessionId);
@@ -163,8 +166,11 @@ public class GameSessionManager {
         return new JoinGameResponseDTO(false, "Private game with code '" + gameCode + "' not found.", null);
       }
       GameSession sessionToJoin = activeSessionsById.get(sessionId);
-      if (sessionToJoin == null || sessionToJoin.isFull() || sessionToJoin.getState() != GameSessionState.WAITING_FOR_PLAYERS) {
+      if (sessionToJoin == null || sessionToJoin.getState() != GameSessionState.WAITING_FOR_PLAYERS) {
         return new JoinGameResponseDTO(false, "Private game not available for joining.", null);
+      }
+      if (sessionToJoin.isFull()) {
+        return new JoinGameResponseDTO(false, "This game is already full. Only two players can participate in this case.", null);
       }
       if (sessionToJoin.addPlayer(joiningClient)) {
         return new JoinGameResponseDTO(true, "Successfully joined private game: " + sessionToJoin.getCaseTitle(), sessionId);
@@ -232,6 +238,11 @@ public void relistPublicLobby(GameSession session) {
   public HostGameResponseDTO createGame(ClientSession hostClient, String caseUniversalTitle, boolean isPublic, String languageCode) {
     managerLock.lock();
     try {
+      // Enforce single session per server instance
+      if (!activeSessionsById.isEmpty()) {
+        return new HostGameResponseDTO(false, "A multiplayer game is already being hosted on this server. End the current game before starting a new one.", null, null);
+      }
+
       CaseFile multiLingualCase = availableCases.get(caseUniversalTitle.toLowerCase());
       if (multiLingualCase == null) {
         return new HostGameResponseDTO(false, "Case '" + caseUniversalTitle + "' not found on server.", null, null);

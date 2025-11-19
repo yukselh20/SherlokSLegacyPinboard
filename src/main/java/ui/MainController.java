@@ -14,6 +14,7 @@ import javafx.animation.FadeTransition;
 import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -25,6 +26,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.media.Media;
@@ -51,7 +53,9 @@ public class MainController implements GameClientStateListener {
         GAME_SINGLE,
         GAME_MULTI,
         MULTIPLAYER_MENU,
-        ADDING_CASE_TERMINAL
+        ADDING_CASE_TERMINAL,
+        PROMPT_JOIN_HOST,
+        PROMPT_JOIN_PORT
     }
 
     private enum UIMultiplayerSubState {
@@ -121,6 +125,13 @@ public class MainController implements GameClientStateListener {
     private boolean isSinglePlayer;
     private boolean isHostPlayer;
     private java.util.Map<String, Boolean> taskStates;
+
+    // --- Embedded Server & Multiplayer Config ---
+    private server.GameServer embeddedServer;
+    private Thread embeddedServerThread;
+    private boolean embeddedServerRunning = false;
+    private String configuredServerHost;
+    private int configuredServerPort;
 
     @FXML
     public void initialize() {
@@ -279,37 +290,37 @@ public class MainController implements GameClientStateListener {
             handleMainMenuInput("1");
         });
 
-        Button multiplayerButton = new Button("Multiplayer (Join/Host)");
-        multiplayerButton.getStyleClass().add("main-menu-button");
-        multiplayerButton.setOnAction(event -> {
+        Button hostMultiplayerButton = new Button("Host Multiplayer Game");
+        hostMultiplayerButton.getStyleClass().add("main-menu-button");
+        hostMultiplayerButton.setOnAction(event -> {
             playSound("click.wav");
             handleMainMenuInput("2");
         });
 
-        Button startServerButton = new Button("Start Server Only");
-        startServerButton.getStyleClass().add("main-menu-button");
-        startServerButton.setOnAction(event -> {
+        Button joinMultiplayerButton = new Button("Join Multiplayer Game");
+        joinMultiplayerButton.getStyleClass().add("main-menu-button");
+        joinMultiplayerButton.setOnAction(event -> {
             playSound("click.wav");
             handleMainMenuInput("3");
-        });
-
-        Button quitButton = new Button("Quit");
-        quitButton.getStyleClass().add("main-menu-button");
-        quitButton.setOnAction(event -> {
-            playSound("click.wav");
-            shutdown();
         });
 
         Button addCaseButton = new Button("Add Custom Case");
         addCaseButton.getStyleClass().add("main-menu-button");
         addCaseButton.setOnAction(event -> {
             playSound("click.wav");
-            new ui.windows.AddCaseWindow(this).show();
+            handleMainMenuInput("4");
+        });
+
+        Button quitButton = new Button("Quit");
+        quitButton.getStyleClass().add("main-menu-button");
+        quitButton.setOnAction(event -> {
+            playSound("click.wav");
+            handleMainMenuInput("5");
         });
 
         mainMenuVBox
                 .getChildren()
-                .addAll(singlePlayerButton, multiplayerButton, startServerButton, addCaseButton, quitButton);
+                .addAll(singlePlayerButton, hostMultiplayerButton, joinMultiplayerButton, addCaseButton, quitButton);
     }
 
     private void handleMainMenuInput(String input) {
@@ -318,14 +329,19 @@ public class MainController implements GameClientStateListener {
                 startSinglePlayer();
                 break;
             case "2":
-                startMultiplayer();
+                startHostMultiplayer();
                 break;
             case "3":
-                startServer();
+                startJoinMultiplayer();
                 break;
             case "4":
-                currentState = UIState.ADDING_CASE_TERMINAL;
-                terminalTextArea.appendText("\nPlease enter the full file path to the case JSON file and press Enter:\n");
+                // For GUI, open the window. For terminal, prompt.
+                if (System.getProperty("java.class.path").contains("openjfx")) { // A bit of a hack to detect GUI mode
+                    new ui.windows.AddCaseWindow(this).show();
+                } else {
+                    currentState = UIState.ADDING_CASE_TERMINAL;
+                    terminalTextArea.appendText("\nPlease enter the full file path to the case JSON file and press Enter:\n");
+                }
                 break;
             case "5":
                 shutdown();
@@ -366,8 +382,8 @@ public class MainController implements GameClientStateListener {
                     terminalTextArea.appendText("Welcome to Detective Game! Please select a mode to begin.\n");
                     terminalTextArea.appendText("\n--- Main Menu ---\n");
                     terminalTextArea.appendText("1. Single Player\n");
-                    terminalTextArea.appendText("2. Multiplayer (Join/Host)\n");
-                    terminalTextArea.appendText("3. Start Server Only\n");
+                    terminalTextArea.appendText("2. Host Multiplayer Game\n");
+                    terminalTextArea.appendText("3. Join Multiplayer Game\n");
                     terminalTextArea.appendText("4. Add Custom Case\n");
                     terminalTextArea.appendText("5. Quit\n");
                     tasksButton.setVisible(false);
@@ -558,15 +574,129 @@ public class MainController implements GameClientStateListener {
         }
     }
 
+    private void startHostMultiplayer() {
+        if (embeddedServerRunning) {
+            terminalTextArea.appendText("\n[ERROR] An embedded server is already running.\n");
+            return;
+        }
+
+        updateStatus("Starting embedded game server...");
+        terminalTextArea.appendText("\nStarting embedded game server for hosted multiplayer game...\n");
+
+        embeddedServerThread = new Thread(() -> {
+            try {
+                // We instantiate GameServer directly, not ServerMain
+                embeddedServer = new server.GameServer(NetworkConstants.DEFAULT_PORT);
+                embeddedServer.startServer(); // This blocks until the server is ready
+                embeddedServer.run(); // This starts the server's main loop
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    terminalTextArea.appendText("[ERROR] Failed to start embedded server: " + e.getMessage() + "\n");
+                });
+                e.printStackTrace();
+            }
+        }, "Embedded-GameServer-Thread");
+
+        embeddedServerThread.setDaemon(true);
+        embeddedServerThread.start();
+        embeddedServerRunning = true;
+
+        // Give the server a moment to start up before connecting.
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Configure client to connect to the new embedded server
+        this.configuredServerHost = "localhost";
+        this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
+        startMultiplayer();
+    }
+
+    private void startJoinMultiplayer() {
+        // A simple way to detect if we're in a GUI environment.
+        // The property is set by the JavaFX launcher.
+        boolean isGuiMode = System.getProperty("java.class.path").contains("openjfx");
+
+        if (isGuiMode) {
+            promptForServerAddressAndStartMultiplayer();
+        } else {
+            // Terminal-based flow
+            currentState = UIState.PROMPT_JOIN_HOST;
+            terminalTextArea.appendText("\nEnter server IP (blank for localhost): \n");
+        }
+    }
+
+    private void promptForServerAddressAndStartMultiplayer() {
+        javafx.scene.control.Dialog<javafx.util.Pair<String, String>> dialog = new javafx.scene.control.Dialog<>();
+        dialog.setTitle("Join Multiplayer Game");
+        dialog.setHeaderText("Enter the host's server address and port.");
+
+        javafx.scene.control.ButtonType okButtonType = new javafx.scene.control.ButtonType("Join", javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(okButtonType, javafx.scene.control.ButtonType.CANCEL);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(20, 150, 10, 10));
+
+        TextField hostField = new TextField();
+        hostField.setPromptText("Host IP or name");
+        hostField.setText("localhost");
+
+        TextField portField = new TextField();
+        portField.setPromptText("Port");
+        portField.setText(String.valueOf(NetworkConstants.DEFAULT_PORT));
+
+        grid.add(new Label("Host:"), 0, 0);
+        grid.add(hostField, 1, 0);
+        grid.add(new Label("Port:"), 0, 1);
+        grid.add(portField, 1, 1);
+
+        dialog.getDialogPane().setContent(grid);
+
+        Platform.runLater(hostField::requestFocus);
+
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == okButtonType) {
+                return new javafx.util.Pair<>(hostField.getText(), portField.getText());
+            }
+            return null;
+        });
+
+        java.util.Optional<javafx.util.Pair<String, String>> result = dialog.showAndWait();
+
+        result.ifPresent(hostPort -> {
+            String host = hostPort.getKey().trim();
+            String portStr = hostPort.getValue().trim();
+
+            if (host.isEmpty()) {
+                host = "localhost";
+            }
+
+            int port;
+            try {
+                port = Integer.parseInt(portStr);
+            } catch (NumberFormatException e) {
+                port = NetworkConstants.DEFAULT_PORT;
+                terminalTextArea.appendText("\n[WARN] Invalid port entered, using default: " + port + "\n");
+            }
+
+            this.configuredServerHost = host;
+            this.configuredServerPort = port;
+            startMultiplayer();
+        });
+    }
+
     private void startMultiplayer() {
         isSinglePlayer = false;
         isHostPlayer = false; // Guest by default, updated by server
         taskStates.clear();
         updateStatus("Starting Multiplayer Client...");
-        String host = getLaunchArg(0, NetworkConstants.DEFAULT_HOST);
-        int port = getLaunchArg(1, NetworkConstants.DEFAULT_PORT);
 
-        gameClient = new GameClient(host, port, this.taos);
+        // Use the configured host and port instead of launch args
+        gameClient = new GameClient(configuredServerHost, configuredServerPort, this.taos);
         gameClient.setListener(this);
 
         gameClientThread = new Thread(() -> {
@@ -585,19 +715,6 @@ public class MainController implements GameClientStateListener {
         // Don't call updateUIVisibility here, the listener will do it.
     }
 
-    private void startServer() {
-        updateStatus("Starting Game Server...");
-        Thread serverThread = new Thread(() -> {
-            try {
-                ServerMain.main(launchArgs.toArray(new String[0]));
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
-        serverThread.setDaemon(true);
-        serverThread.start();
-        terminalTextArea.appendText("Server started in background. You can now start a multiplayer client.\n");
-    }
 
     private String getLaunchArg(int index, String defaultValue) {
         if (launchArgs != null && launchArgs.size() > index) {
@@ -617,7 +734,31 @@ public class MainController implements GameClientStateListener {
         return defaultValue;
     }
 
+    public void shutdownEmbeddedServer() {
+        if (embeddedServerRunning && embeddedServer != null) {
+            terminalTextArea.appendText("\nShutting down embedded server...\n");
+            embeddedServer.stopServer(); // Signal the server to stop
+            if (embeddedServerThread != null && embeddedServerThread.isAlive()) {
+                try {
+                    // Give the server a moment to close connections
+                    embeddedServerThread.join(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    terminalTextArea.appendText("\n[WARN] Interrupted while waiting for server thread to shut down.\n");
+                }
+                if (embeddedServerThread.isAlive()) {
+                    embeddedServerThread.interrupt(); // Forcefully interrupt if it's stuck
+                }
+            }
+            embeddedServerRunning = false;
+            embeddedServer = null;
+            embeddedServerThread = null;
+            terminalTextArea.appendText("Embedded server shut down.\n");
+        }
+    }
+
     public void shutdown() {
+        shutdownEmbeddedServer(); // Ensure server is stopped on app exit
         System.out.println("\nShutting down application...");
         if (gameClient != null) {
             gameClient.stopClient();
@@ -659,6 +800,18 @@ public class MainController implements GameClientStateListener {
                 terminalTextArea.appendText(result + "\n");
                 currentState = UIState.MENU;
                 updateUIVisibility(); // To reprint the main menu
+            } else if (currentState == UIState.PROMPT_JOIN_HOST) {
+                this.configuredServerHost = input.isEmpty() ? "localhost" : input;
+                currentState = UIState.PROMPT_JOIN_PORT;
+                terminalTextArea.appendText("Enter server port (blank for " + NetworkConstants.DEFAULT_PORT + "): \n");
+            } else if (currentState == UIState.PROMPT_JOIN_PORT) {
+                try {
+                    this.configuredServerPort = input.isEmpty() ? NetworkConstants.DEFAULT_PORT : Integer.parseInt(input);
+                } catch (NumberFormatException e) {
+                    this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
+                    terminalTextArea.appendText("\n[WARN] Invalid port, using default: " + this.configuredServerPort + "\n");
+                }
+                startMultiplayer();
             } else if (currentState == UIState.CASE_INVITATION && !isSinglePlayer) {
                 gameClient.enqueueUserInput(input);
             } else if (currentState == UIState.CASE_INVITATION && isSinglePlayer) {
@@ -889,6 +1042,7 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onDisconnected() {
+        shutdownEmbeddedServer(); // Shut down server if we were hosting
         currentMultiplayerSubState = UIMultiplayerSubState.DISCONNECTED;
         Platform.runLater(() -> {
             VBox disconnectedBox = new VBox(15);
@@ -943,10 +1097,14 @@ public class MainController implements GameClientStateListener {
             joinButton.setOnAction(event -> sendCommand("2"));
             Button backButton = new Button("Back to Main Menu");
             backButton.setOnAction(event -> {
+                shutdownEmbeddedServer(); // Shut down server if we were the host
                 gameClient.stopClient();
                 if (gameClientThread != null) {
                     gameClientThread.interrupt();
                 }
+                // Transition back to the main application menu
+                currentState = UIState.MENU;
+                updateUIVisibility();
             });
             menuBox.getChildren().addAll(hostButton, joinButton, backButton);
             roomPane.getChildren().clear();
