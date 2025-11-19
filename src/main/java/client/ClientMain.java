@@ -36,7 +36,7 @@ public class ClientMain {
     System.out.println("========================================");
 
     // Create the main client logic object.
-    GameClient client = new GameClient(host, port, null);
+    GameClient client = new GameClient(host, port, null, GameClient.LaunchMode.NORMAL);
     try {
       client.run();
     } catch (Exception e) {

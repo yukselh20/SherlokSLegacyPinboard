@@ -25,9 +25,17 @@ import org.slf4j.LoggerFactory;
 
 public class GameClient implements Runnable {
 
+  public enum LaunchMode {
+    NORMAL, // Standard flow, shows the full multiplayer menu
+    HOST_ONLY, // Skips the main multiplayer menu and goes directly to hosting options
+    JOIN_ONLY // Skips all menus and immediately attempts to join a specific game
+  }
+
   private static final Logger logger = LoggerFactory.getLogger(GameClient.class);
   private final String host;
   private final int port;
+  private final LaunchMode launchMode;
+  private final String joinGameId; // Can be a session ID for public games or a code for private
   private SocketChannel channel;
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final AtomicBoolean connected = new AtomicBoolean(false);
@@ -68,9 +76,15 @@ public class GameClient implements Runnable {
   private final java.io.PrintStream out;
   private final boolean isGuiMode;
 
-  public GameClient(String host, int port, ui.util.TextAreaOutputStream taos) {
+  public GameClient(String host, int port, ui.util.TextAreaOutputStream taos, LaunchMode launchMode) {
+    this(host, port, taos, launchMode, null);
+  }
+
+  public GameClient(String host, int port, ui.util.TextAreaOutputStream taos, LaunchMode launchMode, String joinGameId) {
     this.host = host;
     this.port = port;
+    this.launchMode = launchMode;
+    this.joinGameId = joinGameId;
     this.playerDisplayId = "Player" + (int) (Math.random() * 9000 + 1000);
     if (taos != null) {
       this.out = new java.io.PrintStream(taos, true);
@@ -1047,8 +1061,25 @@ public class GameClient implements Runnable {
       channel.connect(new InetSocketAddress(host, port));
       connected.set(true);
       reconnectAttempts = 0;
-      currentState.set(ClientState.CONNECTED_IDLE);
-      log("Successfully connected to the server!");
+
+      // New logic to handle LaunchMode
+      if (launchMode == LaunchMode.HOST_ONLY) {
+        currentState.set(ClientState.SELECTING_HOST_TYPE);
+        log("Successfully connected. Launch mode is HOST_ONLY, transitioning to SELECTING_HOST_TYPE.");
+      } else if (launchMode == LaunchMode.JOIN_ONLY) {
+        log("Successfully connected. Launch mode is JOIN_ONLY, auto-sending join command.");
+        // Heuristic: If the ID is short, it's a private code. Otherwise, it's a public session ID.
+        if (joinGameId != null && joinGameId.length() <= 6) { // Assuming private codes are short
+            sendToServer(new JoinPrivateGameCommand(new JoinPrivateGameRequestDTO(joinGameId.toUpperCase())));
+            currentState.set(ClientState.SENDING_JOIN_PRIVATE_REQUEST);
+        } else {
+            sendToServer(new JoinPublicGameCommand(new JoinPublicGameRequestDTO(joinGameId)));
+            currentState.set(ClientState.SENDING_JOIN_PUBLIC_REQUEST);
+        }
+      } else {
+        currentState.set(ClientState.CONNECTED_IDLE);
+        log("Successfully connected. Launch mode is NORMAL, transitioning to CONNECTED_IDLE.");
+      }
 
       if (networkListenerThread == null || !networkListenerThread.isAlive()) {
         networkListenerThread =

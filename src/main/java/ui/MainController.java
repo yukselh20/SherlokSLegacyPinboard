@@ -38,7 +38,9 @@ import singleplayer.SinglePlayerMain;
 import ui.util.GameOutputParser;
 import ui.util.RoomView;
 import ui.util.TextAreaOutputStream;
+import client.discovery.DiscoveredGame;
 import ui.windows.ChatWindow;
+import ui.windows.JoinGameWindow;
 import ui.windows.JournalWindow;
 import ui.windows.TasksWindow;
 import ui.windows.HelpWindow;
@@ -55,7 +57,10 @@ public class MainController implements GameClientStateListener {
         MULTIPLAYER_MENU,
         ADDING_CASE_TERMINAL,
         PROMPT_JOIN_HOST,
-        PROMPT_JOIN_PORT
+        PROMPT_JOIN_PORT,
+        JOIN_MENU_TERMINAL,
+        LISTING_PUBLIC_GAMES_TERMINAL,
+        PROMPT_JOIN_CODE_TERMINAL
     }
 
     private enum UIMultiplayerSubState {
@@ -132,6 +137,7 @@ public class MainController implements GameClientStateListener {
     private boolean embeddedServerRunning = false;
     private String configuredServerHost;
     private int configuredServerPort;
+    private client.discovery.LanGameDiscoveryService discoveryService;
 
     @FXML
     public void initialize() {
@@ -177,6 +183,8 @@ public class MainController implements GameClientStateListener {
         GameOutputParser parser = new GameOutputParser(this);
         taos.setParser(parser);
         System.setOut(new PrintStream(taos, true));
+
+        this.discoveryService = new client.discovery.StubLanGameDiscoveryService();
 
         createMainMenu();
         setupButtonIcons();
@@ -393,6 +401,13 @@ public class MainController implements GameClientStateListener {
                     exitButton.setVisible(false);
                     rightInfoPanel.setVisible(false);
                     break;
+                case JOIN_MENU_TERMINAL:
+                    terminalTextArea.appendText("\n--- Join Multiplayer Game ---\n");
+                    terminalTextArea.appendText("1. List public games\n");
+                    terminalTextArea.appendText("2. Join by code\n");
+                    terminalTextArea.appendText("3. Back to Main Menu\n");
+                    terminalTextArea.appendText("---------------------------\n");
+                    return; // Don't try to change the view
                 case MULTIPLAYER_MENU:
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
@@ -611,7 +626,7 @@ public class MainController implements GameClientStateListener {
         // Configure client to connect to the new embedded server
         this.configuredServerHost = "localhost";
         this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
-        startMultiplayer();
+        startMultiplayer(GameClient.LaunchMode.HOST_ONLY, null);
     }
 
     private void startJoinMultiplayer() {
@@ -620,83 +635,109 @@ public class MainController implements GameClientStateListener {
         boolean isGuiMode = System.getProperty("java.class.path").contains("openjfx");
 
         if (isGuiMode) {
-            promptForServerAddressAndStartMultiplayer();
+            openJoinGameWindow();
         } else {
             // Terminal-based flow
-            currentState = UIState.PROMPT_JOIN_HOST;
-            terminalTextArea.appendText("\nEnter server IP (blank for localhost): \n");
+            currentState = UIState.JOIN_MENU_TERMINAL;
+            updateUIVisibility(); // This will print the join menu
         }
     }
 
-    private void promptForServerAddressAndStartMultiplayer() {
-        javafx.scene.control.Dialog<javafx.util.Pair<String, String>> dialog = new javafx.scene.control.Dialog<>();
-        dialog.setTitle("Join Multiplayer Game");
-        dialog.setHeaderText("Enter the host's server address and port.");
-
-        javafx.scene.control.ButtonType okButtonType = new javafx.scene.control.ButtonType("Join", javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(okButtonType, javafx.scene.control.ButtonType.CANCEL);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(20, 150, 10, 10));
-
-        TextField hostField = new TextField();
-        hostField.setPromptText("Host IP or name");
-        hostField.setText("localhost");
-
-        TextField portField = new TextField();
-        portField.setPromptText("Port");
-        portField.setText(String.valueOf(NetworkConstants.DEFAULT_PORT));
-
-        grid.add(new Label("Host:"), 0, 0);
-        grid.add(hostField, 1, 0);
-        grid.add(new Label("Port:"), 0, 1);
-        grid.add(portField, 1, 1);
-
-        dialog.getDialogPane().setContent(grid);
-
-        Platform.runLater(hostField::requestFocus);
-
-        dialog.setResultConverter(dialogButton -> {
-            if (dialogButton == okButtonType) {
-                return new javafx.util.Pair<>(hostField.getText(), portField.getText());
-            }
-            return null;
-        });
-
-        java.util.Optional<javafx.util.Pair<String, String>> result = dialog.showAndWait();
-
-        result.ifPresent(hostPort -> {
-            String host = hostPort.getKey().trim();
-            String portStr = hostPort.getValue().trim();
-
-            if (host.isEmpty()) {
-                host = "localhost";
-            }
-
-            int port;
-            try {
-                port = Integer.parseInt(portStr);
-            } catch (NumberFormatException e) {
-                port = NetworkConstants.DEFAULT_PORT;
-                terminalTextArea.appendText("\n[WARN] Invalid port entered, using default: " + port + "\n");
-            }
-
-            this.configuredServerHost = host;
-            this.configuredServerPort = port;
-            startMultiplayer();
-        });
+    private void openJoinGameWindow() {
+        JoinGameWindow joinGameWindow = new JoinGameWindow(this);
+        joinGameWindow.show();
     }
 
-    private void startMultiplayer() {
+    public void joinGameByDiscovery(DiscoveredGame game) {
+        if (game == null) {
+            terminalTextArea.appendText("\n[ERROR] Cannot join null game.\n");
+            return;
+        }
+        this.configuredServerHost = game.getHostIp();
+        this.configuredServerPort = game.getPort();
+        startMultiplayer(GameClient.LaunchMode.JOIN_ONLY, game.getSessionId());
+    }
+
+    public void joinGameByCode(String code) {
+        if (code == null || code.trim().isEmpty()) {
+            terminalTextArea.appendText("\n[ERROR] Join code cannot be empty.\n");
+            return;
+        }
+        // The stub service will find the game with this code.
+        DiscoveredGame gameToJoin = discoveryService.getCurrentGames().stream()
+                .filter(g -> !g.isPublic() && code.equals(g.getGameCode()))
+                .findFirst()
+                .orElse(null);
+
+        if (gameToJoin != null) {
+            this.configuredServerHost = gameToJoin.getHostIp();
+            this.configuredServerPort = gameToJoin.getPort();
+            startMultiplayer(GameClient.LaunchMode.JOIN_ONLY, code);
+        } else {
+            terminalTextArea.appendText("\n[ERROR] No private game found with code '" + code + "'.\n");
+        }
+    }
+
+    private void handleJoinMenuTerminalInput(String input) {
+        switch (input) {
+            case "1":
+                discoveryService.refreshAsync();
+                java.util.List<DiscoveredGame> games = discoveryService.getCurrentGames();
+                terminalTextArea.appendText("\n--- Public Games ---\n");
+                if (games.isEmpty()) {
+                    terminalTextArea.appendText("No public games found.\n");
+                    currentState = UIState.JOIN_MENU_TERMINAL;
+                    updateUIVisibility();
+                } else {
+                    for (int i = 0; i < games.size(); i++) {
+                        terminalTextArea.appendText((i + 1) + ". " + games.get(i).toString() + "\n");
+                    }
+                    terminalTextArea.appendText("--------------------\n");
+                    terminalTextArea.appendText("Enter number to join, or 0 to go back:\n");
+                    currentState = UIState.LISTING_PUBLIC_GAMES_TERMINAL;
+                }
+                break;
+            case "2":
+                currentState = UIState.PROMPT_JOIN_CODE_TERMINAL;
+                terminalTextArea.appendText("\nEnter join code: \n");
+                break;
+            case "3":
+                currentState = UIState.MENU;
+                updateUIVisibility();
+                break;
+            default:
+                terminalTextArea.appendText("Invalid selection. Please enter a number from 1 to 3.\n");
+                break;
+        }
+    }
+
+    private void handlePublicGameSelectionTerminal(String input) {
+        if ("0".equals(input)) {
+            currentState = UIState.JOIN_MENU_TERMINAL;
+            updateUIVisibility();
+            return;
+        }
+        try {
+            int gameIndex = Integer.parseInt(input) - 1;
+            java.util.List<DiscoveredGame> games = discoveryService.getCurrentGames();
+            if (gameIndex >= 0 && gameIndex < games.size()) {
+                joinGameByDiscovery(games.get(gameIndex));
+            } else {
+                terminalTextArea.appendText("Invalid game number.\n");
+            }
+        } catch (NumberFormatException e) {
+            terminalTextArea.appendText("Invalid input. Please enter a number.\n");
+        }
+    }
+
+    private void startMultiplayer(GameClient.LaunchMode launchMode, String joinGameId) {
         isSinglePlayer = false;
         isHostPlayer = false; // Guest by default, updated by server
         taskStates.clear();
         updateStatus("Starting Multiplayer Client...");
 
         // Use the configured host and port instead of launch args
-        gameClient = new GameClient(configuredServerHost, configuredServerPort, this.taos);
+        gameClient = new GameClient(configuredServerHost, configuredServerPort, this.taos, launchMode, joinGameId);
         gameClient.setListener(this);
 
         gameClientThread = new Thread(() -> {
@@ -811,7 +852,15 @@ public class MainController implements GameClientStateListener {
                     this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
                     terminalTextArea.appendText("\n[WARN] Invalid port, using default: " + this.configuredServerPort + "\n");
                 }
-                startMultiplayer();
+                startMultiplayer(GameClient.LaunchMode.JOIN_ONLY, null);
+            } else if (currentState == UIState.JOIN_MENU_TERMINAL) {
+                handleJoinMenuTerminalInput(input);
+            } else if (currentState == UIState.LISTING_PUBLIC_GAMES_TERMINAL) {
+                handlePublicGameSelectionTerminal(input);
+            } else if (currentState == UIState.PROMPT_JOIN_CODE_TERMINAL) {
+                joinGameByCode(input);
+                currentState = UIState.MENU; // Go back to main menu after trying to join
+                updateUIVisibility();
             } else if (currentState == UIState.CASE_INVITATION && !isSinglePlayer) {
                 gameClient.enqueueUserInput(input);
             } else if (currentState == UIState.CASE_INVITATION && isSinglePlayer) {
