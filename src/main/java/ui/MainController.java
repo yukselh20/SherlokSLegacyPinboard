@@ -13,12 +13,14 @@ import java.util.List;
 import javafx.animation.FadeTransition;
 import javafx.application.HostServices;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
@@ -27,6 +29,7 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.media.Media;
@@ -40,7 +43,6 @@ import ui.util.RoomView;
 import ui.util.TextAreaOutputStream;
 import client.discovery.DiscoveredGame;
 import ui.windows.ChatWindow;
-import ui.windows.JoinGameWindow;
 import ui.windows.JournalWindow;
 import ui.windows.TasksWindow;
 import ui.windows.HelpWindow;
@@ -56,11 +58,10 @@ public class MainController implements GameClientStateListener {
         GAME_MULTI,
         MULTIPLAYER_MENU,
         ADDING_CASE_TERMINAL,
-        PROMPT_JOIN_HOST,
-        PROMPT_JOIN_PORT,
         JOIN_MENU_TERMINAL,
         LISTING_PUBLIC_GAMES_TERMINAL,
-        PROMPT_JOIN_CODE_TERMINAL
+        PROMPT_JOIN_CODE_TERMINAL,
+        JOIN_GAME_MENU
     }
 
     private enum UIMultiplayerSubState {
@@ -138,6 +139,7 @@ public class MainController implements GameClientStateListener {
     private String configuredServerHost;
     private int configuredServerPort;
     private client.discovery.LanGameDiscoveryService discoveryService;
+    private VBox joinGameMenu;
 
     @FXML
     public void initialize() {
@@ -187,8 +189,54 @@ public class MainController implements GameClientStateListener {
         this.discoveryService = new client.discovery.StubLanGameDiscoveryService();
 
         createMainMenu();
+        createJoinGameMenu();
         setupButtonIcons();
         updateUIVisibility();
+    }
+
+    private void createJoinGameMenu() {
+        joinGameMenu = new VBox(15);
+        joinGameMenu.setAlignment(Pos.CENTER);
+        joinGameMenu.getStyleClass().add("main-menu-container");
+
+        Label title = new Label("Join Multiplayer Game");
+        title.getStyleClass().add("title");
+
+        ListView<DiscoveredGame> gamesList = new ListView<>();
+        gamesList.setPlaceholder(new Label("No public games found on the network."));
+
+        Button joinSelectedButton = new Button("Join Selected Game");
+        joinSelectedButton.setOnAction(e -> {
+            DiscoveredGame selected = gamesList.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                joinGameByDiscovery(selected);
+            }
+        });
+
+        TextField codeField = new TextField();
+        codeField.setPromptText("Enter Join Code");
+        Button joinByCodeButton = new Button("Join by Code");
+        joinByCodeButton.setOnAction(e -> joinGameByCode(codeField.getText()));
+
+        Button refreshButton = new Button("Refresh");
+        refreshButton.setOnAction(e -> {
+            discoveryService.refreshAsync();
+            gamesList.setItems(FXCollections.observableArrayList(discoveryService.getCurrentGames()));
+        });
+
+        Button backButton = new Button("Back to Main Menu");
+        backButton.setOnAction(e -> {
+            currentState = UIState.MENU;
+            updateUIVisibility();
+        });
+
+        HBox codeBox = new HBox(5, codeField, joinByCodeButton);
+        codeBox.setAlignment(Pos.CENTER);
+
+        HBox buttonBox = new HBox(10, joinSelectedButton, refreshButton, backButton);
+        buttonBox.setAlignment(Pos.CENTER);
+
+        joinGameMenu.getChildren().addAll(title, gamesList, codeBox, buttonBox);
     }
 
     private void showCaseInvitation(String invitationText, boolean isHost) {
@@ -408,6 +456,15 @@ public class MainController implements GameClientStateListener {
                     terminalTextArea.appendText("3. Back to Main Menu\n");
                     terminalTextArea.appendText("---------------------------\n");
                     return; // Don't try to change the view
+                case JOIN_GAME_MENU:
+                    nextView = joinGameMenu;
+                    tasksButton.setVisible(false);
+                    journalButton.setVisible(false);
+                    chatButton.setVisible(false);
+                    helpButton.setVisible(false);
+                    exitButton.setVisible(false);
+                    rightInfoPanel.setVisible(false);
+                    break;
                 case MULTIPLAYER_MENU:
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
@@ -633,20 +690,13 @@ public class MainController implements GameClientStateListener {
         boolean isGuiMode = taos != null; // Use the presence of the TextAreaOutputStream to determine GUI mode.
 
         if (isGuiMode) {
-            openJoinGameWindow();
+            currentState = UIState.JOIN_GAME_MENU;
+            updateUIVisibility();
         } else {
             // Terminal-based flow
             currentState = UIState.JOIN_MENU_TERMINAL;
             updateUIVisibility(); // This will print the join menu
         }
-    }
-
-    private void openJoinGameWindow() {
-        // Ensure this runs on the JavaFX Application Thread
-        Platform.runLater(() -> {
-            JoinGameWindow joinGameWindow = new JoinGameWindow(this, this.discoveryService);
-            joinGameWindow.show();
-        });
     }
 
     public void joinGameByDiscovery(DiscoveredGame game) {
@@ -747,8 +797,14 @@ public class MainController implements GameClientStateListener {
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
-                currentState = UIState.MENU;
-                updateUIVisibility();
+                // If this was a hosted game, shut down the server when the client finishes.
+                if (launchMode == GameClient.LaunchMode.HOST_ONLY) {
+                    shutdownEmbeddedServer();
+                }
+                Platform.runLater(() -> {
+                    currentState = UIState.MENU;
+                    updateUIVisibility();
+                });
             }
         }, "GameClient-Thread");
         gameClientThread.setDaemon(true);
@@ -842,18 +898,6 @@ public class MainController implements GameClientStateListener {
                 terminalTextArea.appendText(result + "\n");
                 currentState = UIState.MENU;
                 updateUIVisibility(); // To reprint the main menu
-            } else if (currentState == UIState.PROMPT_JOIN_HOST) {
-                this.configuredServerHost = input.isEmpty() ? "localhost" : input;
-                currentState = UIState.PROMPT_JOIN_PORT;
-                terminalTextArea.appendText("Enter server port (blank for " + NetworkConstants.DEFAULT_PORT + "): \n");
-            } else if (currentState == UIState.PROMPT_JOIN_PORT) {
-                try {
-                    this.configuredServerPort = input.isEmpty() ? NetworkConstants.DEFAULT_PORT : Integer.parseInt(input);
-                } catch (NumberFormatException e) {
-                    this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
-                    terminalTextArea.appendText("\n[WARN] Invalid port, using default: " + this.configuredServerPort + "\n");
-                }
-                startMultiplayer(GameClient.LaunchMode.JOIN_ONLY, null);
             } else if (currentState == UIState.JOIN_MENU_TERMINAL) {
                 handleJoinMenuTerminalInput(input);
             } else if (currentState == UIState.LISTING_PUBLIC_GAMES_TERMINAL) {
