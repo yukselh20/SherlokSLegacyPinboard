@@ -653,37 +653,55 @@ public class MainController implements GameClientStateListener {
         }
 
         updateStatus("Starting embedded game server...");
-        terminalTextArea.appendText("\nStarting embedded game server for hosted multiplayer game...\n");
+        Platform.runLater(() -> terminalTextArea.appendText("\nStarting embedded game server for hosted multiplayer game...\n"));
+
+        final java.util.concurrent.CountDownLatch startupLatch = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicBoolean serverStartedSuccessfully = new java.util.concurrent.atomic.AtomicBoolean(false);
 
         embeddedServerThread = new Thread(() -> {
             try {
-                // We instantiate GameServer directly, not ServerMain
                 embeddedServer = new server.GameServer(NetworkConstants.DEFAULT_PORT);
-                embeddedServer.startServer(); // This blocks until the server is ready
+                embeddedServer.startServer(); // This can throw BindException
+                serverStartedSuccessfully.set(true);
+                startupLatch.countDown(); // Signal success
                 embeddedServer.run(); // This starts the server's main loop
+            } catch (java.net.BindException e) {
+                Platform.runLater(() -> terminalTextArea.appendText("\n[ERROR] Could not start embedded server (port " + NetworkConstants.DEFAULT_PORT + " already in use).\n"));
+                startupLatch.countDown(); // Signal failure
             } catch (Exception e) {
-                Platform.runLater(() -> {
-                    terminalTextArea.appendText("[ERROR] Failed to start embedded server: " + e.getMessage() + "\n");
-                });
+                Platform.runLater(() -> terminalTextArea.appendText("\n[ERROR] Failed to start embedded server: " + e.getMessage() + "\n"));
                 e.printStackTrace();
+                startupLatch.countDown(); // Signal failure
             }
         }, "Embedded-GameServer-Thread");
 
         embeddedServerThread.setDaemon(true);
         embeddedServerThread.start();
-        embeddedServerRunning = true;
 
-        // Give the server a moment to start up before connecting.
         try {
-            Thread.sleep(500);
+            // Wait for the server to either start successfully or fail
+            startupLatch.await(5, java.util.concurrent.TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            Platform.runLater(() -> terminalTextArea.appendText("\n[ERROR] Interrupted while waiting for server to start.\n"));
+            return;
         }
 
-        // Configure client to connect to the new embedded server
-        this.configuredServerHost = "localhost";
-        this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
-        startMultiplayer(GameClient.LaunchMode.HOST_ONLY, null);
+        if (serverStartedSuccessfully.get()) {
+            embeddedServerRunning = true;
+            // Configure client to connect to the new embedded server
+            this.configuredServerHost = "localhost";
+            this.configuredServerPort = NetworkConstants.DEFAULT_PORT;
+            startMultiplayer(GameClient.LaunchMode.HOST_ONLY, null);
+        } else {
+            // Server failed to start, cleanup and return to menu
+            embeddedServer = null;
+            embeddedServerThread = null;
+            Platform.runLater(() -> {
+                currentState = UIState.MENU;
+                updateUIVisibility();
+            });
+        }
     }
 
     private void startJoinMultiplayer() {

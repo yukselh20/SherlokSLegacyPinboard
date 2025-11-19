@@ -64,13 +64,26 @@ public class GameServer implements Runnable {
   }
 
   /**
-   * Signals the server's main loop to stop running and wakes up the selector. Actual cleanup
-   * happens in shutdownServerInternals().
+   * Signals the server's main loop to stop running, wakes up the selector,
+   * and closes the server socket to release the port immediately.
    */
   public void stopServer() {
-    log("StopServer called. Signaling server loop to terminate...");
+    log("StopServer called. Signaling server loop to terminate and closing socket.");
     this.running = false;
-    if (this.selector != null) {
+
+    // Close the server socket channel immediately to release the port.
+    // This will cause an exception in the select() loop, which is handled.
+    if (serverSocketChannel != null && serverSocketChannel.isOpen()) {
+        try {
+            serverSocketChannel.close();
+            log("Server socket channel closed.");
+        } catch (IOException e) {
+            logError("Error closing server socket channel during stop: " + e.getMessage(), e);
+        }
+    }
+
+    // Wake up the selector to ensure the loop terminates promptly.
+    if (this.selector != null && this.selector.isOpen()) {
       this.selector.wakeup(); // Interrupt selector.select() if it's blocking.
     }
   }
@@ -198,14 +211,8 @@ public class GameServer implements Runnable {
       // Major I/O error in the selector.select() loop itself.
       logError("Server run loop I/O error (selector.select() issue?): " + e.getMessage(), e);
     } finally {
-      // If running is still true, it means loop exited due to an unexpected error,
-      // not a clean shutdown signal. So, ensure cleanup.
-      if (running) {
-        log("Server loop exited unexpectedly. Initiating internal shutdown.");
-        shutdownServerInternals();
-      }
-      // If running is false, shutdownServerInternals() will be called by ServerMain's finally block
-      // or the shutdown hook.
+      log("Server loop is terminating. Initiating internal shutdown.");
+      shutdownServerInternals();
     }
   }
 
