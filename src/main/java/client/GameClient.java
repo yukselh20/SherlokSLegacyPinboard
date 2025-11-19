@@ -515,7 +515,11 @@ public class GameClient implements Runnable {
         sendToServer(new RequestCaseListCommand());
         break;
       case "3":
-        currentState.set(ClientState.CONNECTED_IDLE);
+        if (launchMode == LaunchMode.HOST_ONLY) {
+            stopClient();
+        } else {
+            currentState.set(ClientState.CONNECTED_IDLE);
+        }
         break;
       default:
         printToConsole("Invalid choice for Host Type.");
@@ -573,7 +577,11 @@ public class GameClient implements Runnable {
         currentState.set(ClientState.ENTERING_PRIVATE_CODE);
         break;
       case "3":
-        currentState.set(ClientState.CONNECTED_IDLE);
+        if (launchMode == LaunchMode.JOIN_ONLY) {
+            stopClient();
+        } else {
+            currentState.set(ClientState.CONNECTED_IDLE);
+        }
         break;
       default:
         printToConsole("Invalid choice for Join Type.");
@@ -919,11 +927,17 @@ public class GameClient implements Runnable {
       this.hostPlayerIdInSession = null;
       this.intentToHostPublic = true;
       this.currentExamQuestionNumberBeingAnswered = -1;
-      currentState.set(ClientState.CONNECTED_IDLE);
-      if (listener != null) {
-        listener.onMainMenu();
+
+      if (launchMode == LaunchMode.HOST_ONLY || launchMode == LaunchMode.JOIN_ONLY) {
+        stopClient();
+        log("Received ReturnToLobbyDTO in HOST_ONLY/JOIN_ONLY mode. Stopping client.");
+      } else {
+        currentState.set(ClientState.CONNECTED_IDLE);
+        if (listener != null) {
+          listener.onMainMenu();
+        }
+        log("Received ReturnToLobbyDTO. Client state set to CONNECTED_IDLE and onMainMenu called.");
       }
-      log("Received ReturnToLobbyDTO. Client state set to CONNECTED_IDLE and onMainMenu called.");
     } finally {
       consoleLock.unlock();
     }

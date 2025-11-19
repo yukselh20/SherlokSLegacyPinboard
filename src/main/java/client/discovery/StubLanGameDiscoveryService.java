@@ -9,40 +9,8 @@ public class StubLanGameDiscoveryService implements LanGameDiscoveryService {
     private final List<DiscoveredGame> dummyGames = new ArrayList<>();
 
     public StubLanGameDiscoveryService() {
-        // Create some dummy data for testing
-        dummyGames.add(new DiscoveredGame(
-                "The Serpent's Kiss",
-                "Sherlock",
-                true,
-                null,
-                "192.168.1.101",
-                NetworkConstants.DEFAULT_PORT,
-                1,
-                2,
-                "session123"
-        ));
-        dummyGames.add(new DiscoveredGame(
-                "The Crimson Heirloom",
-                "Moriarty",
-                true,
-                null,
-                "192.168.1.102",
-                NetworkConstants.DEFAULT_PORT,
-                1,
-                2,
-                "session456"
-        ));
-        dummyGames.add(new DiscoveredGame(
-                "A Study in Scarlet",
-                "Watson",
-                false, // Private game
-                "ABCDE",
-                "192.168.1.103",
-                NetworkConstants.DEFAULT_PORT,
-                1,
-                2,
-                "session789"
-        ));
+        // By default, the stub returns an empty list.
+        // To add dummy data for testing, you can manually add games here.
     }
 
     @Override

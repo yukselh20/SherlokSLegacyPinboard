@@ -22,9 +22,9 @@ public class JoinGameWindow extends Stage {
     private final LanGameDiscoveryService discoveryService;
     private final ListView<DiscoveredGame> publicGamesListView;
 
-    public JoinGameWindow(MainController mainController) {
+    public JoinGameWindow(MainController mainController, LanGameDiscoveryService discoveryService) {
         this.mainController = mainController;
-        this.discoveryService = new StubLanGameDiscoveryService(); // Using the stub for now
+        this.discoveryService = discoveryService;
 
         setTitle("Join Multiplayer Game");
 

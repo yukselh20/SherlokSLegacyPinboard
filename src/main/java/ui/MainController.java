@@ -630,9 +630,7 @@ public class MainController implements GameClientStateListener {
     }
 
     private void startJoinMultiplayer() {
-        // A simple way to detect if we're in a GUI environment.
-        // The property is set by the JavaFX launcher.
-        boolean isGuiMode = System.getProperty("java.class.path").contains("openjfx");
+        boolean isGuiMode = taos != null; // Use the presence of the TextAreaOutputStream to determine GUI mode.
 
         if (isGuiMode) {
             openJoinGameWindow();
@@ -644,8 +642,11 @@ public class MainController implements GameClientStateListener {
     }
 
     private void openJoinGameWindow() {
-        JoinGameWindow joinGameWindow = new JoinGameWindow(this);
-        joinGameWindow.show();
+        // Ensure this runs on the JavaFX Application Thread
+        Platform.runLater(() -> {
+            JoinGameWindow joinGameWindow = new JoinGameWindow(this, this.discoveryService);
+            joinGameWindow.show();
+        });
     }
 
     public void joinGameByDiscovery(DiscoveredGame game) {
