@@ -8,6 +8,10 @@ public class NetworkConstants {
 
   public static final long SELECTOR_TIMEOUT = 1000; // 1 second
 
+  // --- LAN Discovery ---
+  public static final int DISCOVERY_PORT = 51515;
+  public static final int DISCOVERY_INTERVAL_MS = 1000;
+
   // Private constructor to prevent instantiation
   private NetworkConstants() {}
 }

@@ -42,6 +42,7 @@ import ui.util.GameOutputParser;
 import ui.util.RoomView;
 import ui.util.TextAreaOutputStream;
 import client.discovery.DiscoveredGame;
+import client.discovery.UdpLanGameDiscoveryService;
 import ui.windows.ChatWindow;
 import ui.windows.JournalWindow;
 import ui.windows.TasksWindow;
@@ -186,7 +187,7 @@ public class MainController implements GameClientStateListener {
         taos.setParser(parser);
         System.setOut(new PrintStream(taos, true));
 
-        this.discoveryService = new client.discovery.StubLanGameDiscoveryService();
+        this.discoveryService = new client.discovery.UdpLanGameDiscoveryService();
 
         createMainMenu();
         createJoinGameMenu();
@@ -226,6 +227,9 @@ public class MainController implements GameClientStateListener {
 
         Button backButton = new Button("Back to Main Menu");
         backButton.setOnAction(e -> {
+            if (discoveryService instanceof UdpLanGameDiscoveryService) {
+                ((UdpLanGameDiscoveryService) discoveryService).stop();
+            }
             currentState = UIState.MENU;
             updateUIVisibility();
         });
@@ -707,6 +711,10 @@ public class MainController implements GameClientStateListener {
     private void startJoinMultiplayer() {
         boolean isGuiMode = taos != null; // Use the presence of the TextAreaOutputStream to determine GUI mode.
 
+        if (discoveryService instanceof UdpLanGameDiscoveryService) {
+            ((UdpLanGameDiscoveryService) discoveryService).start();
+        }
+
         if (isGuiMode) {
             currentState = UIState.JOIN_GAME_MENU;
             updateUIVisibility();
@@ -732,18 +740,21 @@ public class MainController implements GameClientStateListener {
             terminalTextArea.appendText("\n[ERROR] Join code cannot be empty.\n");
             return;
         }
-        // The stub service will find the game with this code.
-        DiscoveredGame gameToJoin = discoveryService.getCurrentGames().stream()
-                .filter(g -> !g.isPublic() && code.equals(g.getGameCode()))
-                .findFirst()
-                .orElse(null);
 
-        if (gameToJoin != null) {
-            this.configuredServerHost = gameToJoin.getHostIp();
-            this.configuredServerPort = gameToJoin.getPort();
-            startMultiplayer(GameClient.LaunchMode.JOIN_ONLY, code);
+        if (discoveryService instanceof UdpLanGameDiscoveryService) {
+            java.util.Optional<DiscoveredGame> gameToJoin = ((UdpLanGameDiscoveryService) discoveryService).findByCode(code);
+
+            if (gameToJoin.isPresent()) {
+                DiscoveredGame game = gameToJoin.get();
+                this.configuredServerHost = game.getHostIp();
+                this.configuredServerPort = game.getPort();
+                startMultiplayer(GameClient.LaunchMode.JOIN_ONLY, code);
+            } else {
+                terminalTextArea.appendText("\n[ERROR] No game with that code found on your local network.\n");
+            }
         } else {
-            terminalTextArea.appendText("\n[ERROR] No private game found with code '" + code + "'.\n");
+            // Fallback for stub or other implementations
+            terminalTextArea.appendText("\n[INFO] Joining by code is only supported with the UDP discovery service.\n");
         }
     }
 
@@ -875,6 +886,9 @@ public class MainController implements GameClientStateListener {
     }
 
     public void shutdown() {
+        if (discoveryService instanceof UdpLanGameDiscoveryService) {
+            ((UdpLanGameDiscoveryService) discoveryService).stop();
+        }
         shutdownEmbeddedServer(); // Ensure server is stopped on app exit
         System.out.println("\nShutting down application...");
         if (gameClient != null) {

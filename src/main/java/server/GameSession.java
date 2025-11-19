@@ -28,11 +28,13 @@ public class GameSession {
   private final GameSessionManager sessionManager;
   private final GameServer server;
   private final CaseData caseFile;
+  private LanGameBroadcaster broadcaster;
+  private Thread broadcasterThread;
 
 
   public GameSession(CaseData caseFile, ClientSession hostPlayer, boolean isPublic, String assignedGameCode, GameSessionManager manager, GameServer server) {
     this.sessionId = UUID.randomUUID().toString();
-    this.caseFile = Objects.requireNonNull(caseFile, "CaseData object cannot be null"); // MODIFIED
+    this.caseFile = Objects.requireNonNull(caseFile, "CaseData object cannot be null");
     this.sessionManager = Objects.requireNonNull(manager, "GameSessionManager cannot be null");
     this.server = Objects.requireNonNull(server, "GameServer cannot be null");
     this.state = GameSessionState.LOADING;
@@ -44,8 +46,6 @@ public class GameSession {
       this.gameCode = null;
     }
 
-    // This line now causes the SECOND error, which we will fix next.
-    // We pass `this.caseFile` which is a CaseData object.
     this.gameContext = new GameContextServer(this, this.caseFile, hostPlayer.getPlayerId(), null);
 
     if (!loadCaseDataIntoContext()) {
@@ -55,11 +55,11 @@ public class GameSession {
     } else {
       this.state = GameSessionState.WAITING_FOR_PLAYERS;
       log("Session created for case '" + this.caseFile.getTitle() + "'. Host: " + hostPlayer.getDisplayId() + ". Waiting for Player 2.");
+      startBroadcasting();
     }
   }
 
   private void log(String message) {
-    // Formats the message with the session's unique ID for easy tracking in logs
     logger.info("[SESS:{}] {}", this.sessionId.substring(0, 8), message);
   }
 
@@ -105,6 +105,7 @@ public class GameSession {
 
       newPlayer.send(new common.dto.JoinGameResponseDTO(true, "Joined game: " + this.caseFile.getTitle() + " with host " + player1.getDisplayId(), this.sessionId));
 
+      stopBroadcasting();
       startGameSession();
       return true;
     } finally {
@@ -127,7 +128,6 @@ public class GameSession {
     broadcast(new TextMessage("--- Case Invitation ---\n" + caseFile.getInvitation() + "\n\nHost (" + player1.getDisplayId() + ") should type 'start case' to begin.", false), null);
   }
 
-
   public void handlePlayerDisconnect(ClientSession disconnectedClient) {
     sessionLock.lock();
     try {
@@ -148,6 +148,7 @@ public class GameSession {
           player2.send(new ReturnToLobbyDTO("Returning to main menu as host has left."));
           player2.setAssociatedGameSession(null);
         }
+        stopBroadcasting();
         sessionManager.endSession(this.sessionId, "Host disconnected.");
       } else if (wasP2) { // GUEST DISCONNECTED
         log("Guest has disconnected. Session " + sessionId + " continues for host.");
@@ -168,21 +169,19 @@ public class GameSession {
     }
   }
 
-
   public void playerRequestsExit(String playerId) {
     sessionLock.lock();
     try {
       ClientSession exitingPlayer = getClientSessionById(playerId);
       if (exitingPlayer == null) {
         log("PlayerRequestsExit called for a player ID not in this session: " + playerId);
-        return; // Player not found or already gone.
+        return;
       }
 
       log("Player " + exitingPlayer.getDisplayId() + " has requested to exit the game.");
 
       boolean wasHost = (player1 != null && player1.getPlayerId().equals(playerId));
 
-      // SCENARIO 1: The Host is exiting. The session must end for everyone.
       if (wasHost) {
         log("Host is exiting. The session will be terminated.");
         if (player2 != null) {
@@ -194,7 +193,6 @@ public class GameSession {
         player1.setAssociatedGameSession(null);
         sessionManager.endSession(this.sessionId, "Host exited the game.");
       }
-      // SCENARIO 2: The Guest is exiting. The host can continue.
       else {
         log("Guest (" + exitingPlayer.getDisplayId() + ") is exiting. Host will remain.");
         exitingPlayer.send(new ReturnToLobbyDTO("You have left the game."));
@@ -211,7 +209,7 @@ public class GameSession {
             setSessionState(GameSessionState.WAITING_FOR_PLAYERS);
             log("Session is now back to WAITING_FOR_PLAYERS.");
             player1.send(new TextMessage("Waiting for a new player...", false));
-            if (this.gameCode == null) { // This session is public
+            if (this.gameCode == null) {
               sessionManager.relistPublicLobby(this);
             }
           }
@@ -234,11 +232,10 @@ public class GameSession {
                 commandAllowed = true;
             }
         } else if (this.state == GameSessionState.WAITING_FOR_PLAYERS || this.state == GameSessionState.IN_LOBBY_AWAITING_START) {
-        // Whitelist of commands allowed in any lobby state
         if (command instanceof common.commands.StartCaseCommand
                 || command instanceof common.commands.RequestStartCaseCommand
                 || command instanceof common.commands.ExitCommand
-                || command instanceof common.commands.CancelLobbyCommand) { // Our new command is now included
+                || command instanceof common.commands.CancelLobbyCommand) {
           commandAllowed = true;
         }
       }
@@ -277,8 +274,7 @@ public class GameSession {
   }
 
   public void endSession(String reason) {
-    this.state = GameSessionState.ENDED_ABANDONED; // Or other end state
-    // Notify players, clean up, etc.
+    this.state = GameSessionState.ENDED_ABANDONED;
   }
 
   public void notifyNameChangeToManagerIfHost(String updatedPlayerId, String newDisplayName) {
@@ -292,7 +288,6 @@ public class GameSession {
     }
   }
 
-  // --- Getters and Helpers ---
   public String getSessionId() { return sessionId; }
   public String getCaseTitle() {
     return caseFile.getTitle();
@@ -329,12 +324,9 @@ public class GameSession {
     return null;
   }
 
-
-
 public void playerCancelsLobby(String playerId) {
   sessionLock.lock();
   try {
-      // First, verify this command is valid for the current state.
       if (this.state != GameSessionState.WAITING_FOR_PLAYERS
               && this.state != GameSessionState.IN_LOBBY_AWAITING_START) {
           ClientSession player = getClientSessionById(playerId);
@@ -346,53 +338,43 @@ public void playerCancelsLobby(String playerId) {
 
       ClientSession cancellingPlayer = getClientSessionById(playerId);
       if (cancellingPlayer == null) {
-          return; // Player already gone.
+          return;
       }
 
       boolean isHost = player1 != null && player1.equals(cancellingPlayer);
 
-      // --- SCENARIO 1: HOST is cancelling. ---
-      // The entire session ends for everyone.
       if (isHost) {
           log("Host is cancelling the lobby. Session will be terminated.");
 
-          // Notify the guest (if they exist) that the session is over.
           if (player2 != null) {
               player2.send(new TextMessage("The host has cancelled the lobby.", false));
               player2.send(new ReturnToLobbyDTO("Returning to main menu."));
               player2.setAssociatedGameSession(null);
           }
 
-          // Notify the host themselves.
           player1.send(new ReturnToLobbyDTO("You have left the lobby."));
           player1.setAssociatedGameSession(null);
 
-          // Tell the manager to destroy this session object.
+          stopBroadcasting();
           sessionManager.endSession(this.sessionId, "Lobby cancelled by host.");
 
       }
-      // --- SCENARIO 2: GUEST is cancelling. ---
-      // The host remains and the lobby becomes available again.
       else {
           log("Guest (" + cancellingPlayer.getDisplayId() + ") is leaving the lobby. Host will remain.");
 
-          // Notify the guest they are returning to the menu.
           cancellingPlayer.send(new ReturnToLobbyDTO("You have left the lobby."));
           cancellingPlayer.setAssociatedGameSession(null);
 
-          // Remove the guest from the session state.
           this.player2 = null;
           if (gameContext != null) {
               gameContext.setPlayerIds(player1.getPlayerId(), null);
           }
 
-          // Notify the host and revert the session state.
           if (player1 != null) {
               setSessionState(GameSessionState.WAITING_FOR_PLAYERS);
               log("Session is now back to WAITING_FOR_PLAYERS.");
               player1.send(new TextMessage(cancellingPlayer.getDisplayId() + " has left the lobby. Waiting for a new player...", false));
               
-              // If it was a public game, re-list it in the manager.
               if (this.gameCode == null) {
                   sessionManager.relistPublicLobby(this);
               }
@@ -403,5 +385,37 @@ public void playerCancelsLobby(String playerId) {
   }
 }
 
+    private void startBroadcasting() {
+        if (broadcaster != null) {
+            log("Broadcaster already running.");
+            return;
+        }
 
+        java.util.function.Supplier<common.dto.LanDiscoveryPacket> packetSupplier = () -> new common.dto.LanDiscoveryPacket(
+                this.sessionId,
+                this.getCaseTitle(),
+                this.player1.getDisplayId(),
+                this.gameCode == null,
+                this.gameCode,
+                common.NetworkConstants.DEFAULT_PORT
+        );
+
+        this.broadcaster = new LanGameBroadcaster(packetSupplier);
+        this.broadcasterThread = new Thread(broadcaster, "LanBroadcaster-" + sessionId.substring(0, 8));
+        this.broadcasterThread.setDaemon(true);
+        this.broadcasterThread.start();
+        log("LAN discovery broadcast started.");
+    }
+
+    private void stopBroadcasting() {
+        if (broadcaster != null) {
+            broadcaster.stop();
+            if (broadcasterThread != null) {
+                broadcasterThread.interrupt();
+            }
+            broadcaster = null;
+            broadcasterThread = null;
+            log("LAN discovery broadcast stopped.");
+        }
+    }
 }
