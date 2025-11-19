@@ -3,7 +3,7 @@ package client.discovery;
 public class DiscoveredGame {
     private final String gameName;
     private final String hostDisplayName;
-    private final boolean isPublic;
+    private final boolean publicGame;
     private final String gameCode;   // join-code
     private final String hostIp;     // internal use ONLY
     private final int port;          // internal use ONLY
@@ -14,7 +14,7 @@ public class DiscoveredGame {
     public DiscoveredGame(String gameName, String hostDisplayName, boolean isPublic, String gameCode, String hostIp, int port, int playerCount, int maxPlayers, String sessionId) {
         this.gameName = gameName;
         this.hostDisplayName = hostDisplayName;
-        this.isPublic = isPublic;
+        this.publicGame = isPublic;
         this.gameCode = gameCode;
         this.hostIp = hostIp;
         this.port = port;
@@ -32,8 +32,8 @@ public class DiscoveredGame {
         return hostDisplayName;
     }
 
-    public boolean isPublic() {
-        return isPublic;
+    public boolean isPublicGame() {
+        return publicGame;
     }
 
     public String getGameCode() {
