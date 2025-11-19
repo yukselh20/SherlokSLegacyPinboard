@@ -834,7 +834,8 @@ public class MainController implements GameClientStateListener {
 
     public void shutdownEmbeddedServer() {
         if (embeddedServerRunning && embeddedServer != null) {
-            terminalTextArea.appendText("\nShutting down embedded server...\n");
+            Platform.runLater(() -> terminalTextArea.appendText("\nShutting down embedded server...\n"));
+
             embeddedServer.stopServer(); // Signal the server to stop
             if (embeddedServerThread != null && embeddedServerThread.isAlive()) {
                 try {
@@ -842,7 +843,7 @@ public class MainController implements GameClientStateListener {
                     embeddedServerThread.join(1000);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    terminalTextArea.appendText("\n[WARN] Interrupted while waiting for server thread to shut down.\n");
+                    Platform.runLater(() -> terminalTextArea.appendText("\n[WARN] Interrupted while waiting for server thread to shut down.\n"));
                 }
                 if (embeddedServerThread.isAlive()) {
                     embeddedServerThread.interrupt(); // Forcefully interrupt if it's stuck
@@ -851,7 +852,7 @@ public class MainController implements GameClientStateListener {
             embeddedServerRunning = false;
             embeddedServer = null;
             embeddedServerThread = null;
-            terminalTextArea.appendText("Embedded server shut down.\n");
+            Platform.runLater(() -> terminalTextArea.appendText("Embedded server shut down.\n"));
         }
     }
 
