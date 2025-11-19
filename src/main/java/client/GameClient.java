@@ -934,9 +934,9 @@ public class GameClient implements Runnable {
       } else {
         currentState.set(ClientState.CONNECTED_IDLE);
         if (listener != null) {
-          listener.onMainMenu();
+          listener.onReturnToMainMenu(rtl.getMessage());
         }
-        log("Received ReturnToLobbyDTO. Client state set to CONNECTED_IDLE and onMainMenu called.");
+        log("Received ReturnToLobbyDTO. Client state set to CONNECTED_IDLE and onReturnToMainMenu called.");
       }
     } finally {
       consoleLock.unlock();
@@ -1254,6 +1254,10 @@ public class GameClient implements Runnable {
             log("Sending direct command from GUI: " + command.getClass().getSimpleName());
             sendToServer(command);
         }
+    }
+
+    public LaunchMode getLaunchMode() {
+        return launchMode;
     }
 
     // REPLACE this method

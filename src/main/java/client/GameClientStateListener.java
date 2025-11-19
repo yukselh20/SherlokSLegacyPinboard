@@ -10,6 +10,7 @@ public interface GameClientStateListener {
   void onConnecting();
   void onConnected();
   void onMainMenu();
+    void onReturnToMainMenu(String message);
   void onHostGameOptions();
   void onCaseSelection(List<CaseFile> cases);
   void onLanguageSelection(CaseFile caseFile);

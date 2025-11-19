@@ -10,9 +10,7 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.PrintStream;
 import java.util.List;
-import java.util.stream.Collectors;
 import javafx.animation.FadeTransition;
-import javafx.animation.PauseTransition;
 import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -223,29 +221,12 @@ public class MainController implements GameClientStateListener {
 
         Button refreshButton = new Button("Refresh");
         refreshButton.setOnAction(e -> {
-            gamesList.setPlaceholder(new Label("Searching for games..."));
-            gamesList.getItems().clear();
-            discoveryService.refreshAsync(); // Clears the list and sends a new broadcast request
-
-            PauseTransition pause = new PauseTransition(Duration.millis(1200));
-            pause.setOnFinished(event -> {
-                List<DiscoveredGame> publicGames = discoveryService.getCurrentGames().stream()
-                    .filter(DiscoveredGame::isPublicGame)
-                    .collect(Collectors.toList());
-                gamesList.setItems(FXCollections.observableArrayList(publicGames));
-                gamesList.setPlaceholder(new Label("No public games found on the network."));
-            });
-            pause.play();
+            discoveryService.refreshAsync();
+            gamesList.setItems(FXCollections.observableArrayList(discoveryService.getCurrentGames()));
         });
 
         Button backButton = new Button("Back to Main Menu");
-        backButton.setOnAction(e -> {
-            if (discoveryService instanceof UdpLanGameDiscoveryService) {
-                ((UdpLanGameDiscoveryService) discoveryService).stop();
-            }
-            currentState = UIState.MENU;
-            updateUIVisibility();
-        });
+        backButton.setOnAction(e -> returnToMainMenu());
 
         HBox codeBox = new HBox(5, codeField, joinByCodeButton);
         codeBox.setAlignment(Pos.CENTER);
@@ -584,6 +565,21 @@ public class MainController implements GameClientStateListener {
             // This will be called by the parser when the host cancels
             onMainMenu();
         });
+    }
+
+    public void returnToMainMenu() {
+        shutdownEmbeddedServer();
+        if (gameClient != null) {
+            gameClient.stopClient();
+        }
+        if (gameClientThread != null && gameClientThread.isAlive()) {
+            gameClientThread.interrupt();
+        }
+        if (discoveryService instanceof UdpLanGameDiscoveryService) {
+            ((UdpLanGameDiscoveryService) discoveryService).stop();
+        }
+        currentState = UIState.MENU;
+        updateUIVisibility();
     }
 
     private void handleCaseSelectionInput(String input) {
@@ -1215,41 +1211,26 @@ public class MainController implements GameClientStateListener {
     }
 
     @Override
+    public void onReturnToMainMenu(String message) {
+        Platform.runLater(() -> {
+            terminalTextArea.appendText("\n" + message + "\n");
+            returnToMainMenu();
+        });
+    }
+
+    @Override
     public void onMainMenu() {
         if (taskStates != null) {
             taskStates.clear();
         }
-        currentMultiplayerSubState = UIMultiplayerSubState.MAIN_MENU;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
-        Platform.runLater(() -> {
-            terminalTextArea.clear();
-            terminalTextArea.appendText("--- Multiplayer Menu ---\n");
-            terminalTextArea.appendText("1. Host Game\n");
-            terminalTextArea.appendText("2. Join Game\n");
-            terminalTextArea.appendText("3. Back to Main Menu\n");
-            terminalTextArea.appendText("----------------------\n");
-            VBox menuBox = new VBox(15);
-            menuBox.setAlignment(Pos.CENTER);
-            Button hostButton = new Button("Host Game");
-            hostButton.setOnAction(event -> sendCommand("1"));
-            Button joinButton = new Button("Join Game");
-            joinButton.setOnAction(event -> sendCommand("2"));
-            Button backButton = new Button("Back to Main Menu");
-            backButton.setOnAction(event -> {
-                shutdownEmbeddedServer(); // Shut down server if we were the host
-                gameClient.stopClient();
-                if (gameClientThread != null) {
-                    gameClientThread.interrupt();
-                }
-                // Transition back to the main application menu
-                currentState = UIState.MENU;
-                updateUIVisibility();
-            });
-            menuBox.getChildren().addAll(hostButton, joinButton, backButton);
-            roomPane.getChildren().clear();
-            roomPane.getChildren().add(menuBox);
-        });
+        // This method is now a router. Based on the launch mode, it will either
+        // show host options or join options, bypassing the old multiplayer menu.
+        if (gameClient != null && gameClient.getLaunchMode() == GameClient.LaunchMode.HOST_ONLY) {
+            onHostGameOptions();
+        } else {
+            // Default to join options for NORMAL and JOIN_ONLY modes in the GUI flow
+            onJoinGameOptions();
+        }
     }
 
     @Override
