@@ -831,19 +831,26 @@ public class GameClient implements Runnable {
   private void handleJoinGameResponse(JoinGameResponseDTO jgr) {
     if (jgr.isSuccess()) {
       this.currentSessionId = jgr.getSessionId();
-      printToConsole(
-          "Successfully joined game session: " + jgr.getSessionId() + ". " + jgr.getMessage());
+      printToConsole("Successfully joined game session: " + jgr.getSessionId() + ". " + jgr.getMessage());
       currentState.set(ClientState.IN_LOBBY_AWAITING_START);
     } else {
-      printToConsole("Failed to join game: " + jgr.getMessage());
-      if (preWaitingState == ClientState.VIEWING_PUBLIC_GAMES
-          || currentState.get() == ClientState.SENDING_JOIN_PUBLIC_REQUEST) {
-        currentState.set(ClientState.VIEWING_PUBLIC_GAMES);
-      } else if (preWaitingState == ClientState.ENTERING_PRIVATE_CODE
-          || currentState.get() == ClientState.SENDING_JOIN_PRIVATE_REQUEST) {
-        currentState.set(ClientState.ENTERING_PRIVATE_CODE);
-      } else {
-        currentState.set(ClientState.SELECTING_JOIN_TYPE);
+      // GUI MODE: Notify the MainController to show an alert and refresh.
+      if (listener != null) {
+        listener.onJoinGameFailed(jgr.getMessage());
+        // The client's job is done after a failed join, so we stop it.
+        // The MainController is now responsible for the UI.
+        stopClient();
+      }
+      // CONSOLE MODE: Fallback to old behavior.
+      else {
+        printToConsole("Failed to join game: " + jgr.getMessage());
+        if (preWaitingState == ClientState.VIEWING_PUBLIC_GAMES || currentState.get() == ClientState.SENDING_JOIN_PUBLIC_REQUEST) {
+          currentState.set(ClientState.VIEWING_PUBLIC_GAMES);
+        } else if (preWaitingState == ClientState.ENTERING_PRIVATE_CODE || currentState.get() == ClientState.SENDING_JOIN_PRIVATE_REQUEST) {
+          currentState.set(ClientState.ENTERING_PRIVATE_CODE);
+        } else {
+          currentState.set(ClientState.SELECTING_JOIN_TYPE);
+        }
       }
     }
   }

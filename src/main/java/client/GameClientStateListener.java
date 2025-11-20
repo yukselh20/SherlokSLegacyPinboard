@@ -25,4 +25,5 @@ public interface GameClientStateListener {
     void onJournalUpdated();
     void onChatMessageReceived(common.dto.ChatMessage message);
     void onTaskStateUpdate(int taskIndex, boolean isCompleted);
+    void onJoinGameFailed(String message);
 }

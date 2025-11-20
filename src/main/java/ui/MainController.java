@@ -27,6 +27,7 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.control.Alert;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
@@ -143,6 +144,7 @@ public class MainController implements GameClientStateListener {
     private int configuredServerPort;
     private client.discovery.LanGameDiscoveryService discoveryService;
     private VBox joinGameMenu;
+    private ListView<DiscoveredGame> publicGamesListView; // Add this
 
     @FXML
     public void initialize() {
@@ -205,12 +207,12 @@ public class MainController implements GameClientStateListener {
         Label title = new Label("Join Multiplayer Game");
         title.getStyleClass().add("title");
 
-        ListView<DiscoveredGame> gamesList = new ListView<>();
-        gamesList.setPlaceholder(new Label("No public games found on the network."));
+        publicGamesListView = new ListView<>();
+        publicGamesListView.setPlaceholder(new Label("No public games found on the network."));
 
         Button joinSelectedButton = new Button("Join Selected Game");
         joinSelectedButton.setOnAction(e -> {
-            DiscoveredGame selected = gamesList.getSelectionModel().getSelectedItem();
+            DiscoveredGame selected = publicGamesListView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 joinGameByDiscovery(selected);
             }
@@ -222,21 +224,7 @@ public class MainController implements GameClientStateListener {
         joinByCodeButton.setOnAction(e -> joinGameByCode(codeField.getText()));
 
         Button refreshButton = new Button("Refresh");
-        refreshButton.setOnAction(e -> {
-            gamesList.setPlaceholder(new Label("Searching for games..."));
-            gamesList.getItems().clear();
-            discoveryService.refreshAsync(); // Clears the list and sends a new broadcast request
-
-            PauseTransition pause = new PauseTransition(Duration.millis(1200));
-            pause.setOnFinished(event -> {
-                List<DiscoveredGame> publicGames = discoveryService.getCurrentGames().stream()
-                    .filter(DiscoveredGame::isPublicGame)
-                    .collect(Collectors.toList());
-                gamesList.setItems(FXCollections.observableArrayList(publicGames));
-                gamesList.setPlaceholder(new Label("No public games found on the network."));
-            });
-            pause.play();
-        });
+        refreshButton.setOnAction(e -> refreshPublicGamesList());
 
         Button backButton = new Button("Back to Main Menu");
         backButton.setOnAction(e -> returnToMainMenu());
@@ -247,7 +235,25 @@ public class MainController implements GameClientStateListener {
         HBox buttonBox = new HBox(10, joinSelectedButton, refreshButton, backButton);
         buttonBox.setAlignment(Pos.CENTER);
 
-        joinGameMenu.getChildren().addAll(title, gamesList, codeBox, buttonBox);
+        joinGameMenu.getChildren().addAll(title, publicGamesListView, codeBox, buttonBox);
+    }
+
+    private void refreshPublicGamesList() {
+        if (publicGamesListView == null) return;
+
+        publicGamesListView.setPlaceholder(new Label("Searching for games..."));
+        publicGamesListView.getItems().clear();
+        discoveryService.refreshAsync();
+
+        PauseTransition pause = new PauseTransition(Duration.millis(1200));
+        pause.setOnFinished(event -> {
+            List<DiscoveredGame> publicGames = discoveryService.getCurrentGames().stream()
+                .filter(DiscoveredGame::isPublicGame)
+                .collect(Collectors.toList());
+            publicGamesListView.setItems(FXCollections.observableArrayList(publicGames));
+            publicGamesListView.setPlaceholder(new Label("No public games found on the network."));
+        });
+        pause.play();
     }
 
     private void showCaseInvitation(String invitationText, boolean isHost) {
@@ -1191,7 +1197,13 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onDisconnected() {
-        shutdownEmbeddedServer(); // Shut down server if we were hosting
+        if (gameClient != null && gameClient.getLaunchMode() == GameClient.LaunchMode.HOST_ONLY) {
+            // If the host disconnects, it's usually because they are shutting down.
+            // Go directly back to the main menu.
+            Platform.runLater(this::returnToMainMenu);
+            return;
+        }
+
         currentMultiplayerSubState = UIMultiplayerSubState.DISCONNECTED;
         Platform.runLater(() -> {
             VBox disconnectedBox = new VBox(15);
@@ -1199,7 +1211,9 @@ public class MainController implements GameClientStateListener {
             Label label = new Label("Disconnected from server.");
             Button reconnectButton = new Button("Reconnect");
             reconnectButton.setOnAction(event -> sendCommand("connect"));
-            disconnectedBox.getChildren().addAll(label, reconnectButton);
+            Button mainMenuButton = new Button("Back to Main Menu");
+            mainMenuButton.setOnAction(event -> returnToMainMenu());
+            disconnectedBox.getChildren().addAll(label, reconnectButton, mainMenuButton);
             roomPane.getChildren().clear();
             roomPane.getChildren().add(disconnectedBox);
         });
@@ -1450,6 +1464,22 @@ public class MainController implements GameClientStateListener {
     @Override
     public void onUpdateRoom(RoomDescriptionDTO newRoom) {
         updateRoomView(newRoom);
+    }
+
+    @Override
+    public void onJoinGameFailed(String message) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle("Join Game Failed");
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            alert.showAndWait();
+
+            // Return to the join menu and refresh the list
+            currentState = UIState.JOIN_GAME_MENU;
+            updateUIVisibility();
+            refreshPublicGamesList();
+        });
     }
 
     @Override
