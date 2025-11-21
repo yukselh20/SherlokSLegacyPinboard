@@ -508,6 +508,7 @@ public class MainController implements GameClientStateListener {
                     nextView = roomView;
                     tasksButton.setVisible(true);
                     journalButton.setVisible(true);
+                    pinboardButton.setVisible(true);
                     chatButton.setVisible(false);
                     helpButton.setVisible(true);
                     exitButton.setVisible(true);
@@ -517,6 +518,7 @@ public class MainController implements GameClientStateListener {
                     nextView = roomView;
                     tasksButton.setVisible(true);
                     journalButton.setVisible(true);
+                    pinboardButton.setVisible(true);
                     chatButton.setVisible(true);
                     helpButton.setVisible(true);
                     exitButton.setVisible(true);
