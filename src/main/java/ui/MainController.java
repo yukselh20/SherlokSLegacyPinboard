@@ -446,6 +446,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
                     pinboardButton.setVisible(false);
+                    pinboardButton.setManaged(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -455,6 +456,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
                     pinboardButton.setVisible(false);
+                    pinboardButton.setManaged(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(isHostPlayer); // Only host can exit at this stage
@@ -473,6 +475,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
                     pinboardButton.setVisible(false);
+                    pinboardButton.setManaged(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -490,6 +493,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
                     pinboardButton.setVisible(false);
+                    pinboardButton.setManaged(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -499,6 +503,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
                     pinboardButton.setVisible(false);
+                    pinboardButton.setManaged(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -509,6 +514,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(true);
                     journalButton.setVisible(true);
                     pinboardButton.setVisible(true);
+                    pinboardButton.setManaged(true);
                     chatButton.setVisible(false);
                     helpButton.setVisible(true);
                     exitButton.setVisible(true);
@@ -519,6 +525,7 @@ public class MainController implements GameClientStateListener {
                     tasksButton.setVisible(true);
                     journalButton.setVisible(true);
                     pinboardButton.setVisible(true);
+                    pinboardButton.setManaged(true);
                     chatButton.setVisible(true);
                     helpButton.setVisible(true);
                     exitButton.setVisible(true);
@@ -1523,6 +1530,7 @@ public class MainController implements GameClientStateListener {
             tasksButton.setVisible(true);
             journalButton.setVisible(true);
             pinboardButton.setVisible(true);
+            pinboardButton.setManaged(true);
             chatButton.setVisible(true);
             helpButton.setVisible(true);
             exitButton.setVisible(true);
