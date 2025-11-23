@@ -14,11 +14,17 @@ import common.dto.ChatMessage;
 import common.dto.LobbyUpdateDTO;
 import common.dto.ReturnToLobbyDTO;
 import common.dto.TextMessage;
+import common.dto.pinboard.PinboardStateDTO;
+import common.dto.pinboard.PinboardUpdateDTO;
+import common.commands.pinboard.UpdatePinboardCommand;
+import common.commands.pinboard.RequestPinboardStateCommand;
+import common.commands.pinboard.PinboardStateResponseCommand;
 import JsonDTO.CaseData;
 
 public class GameSession {
   private static final Logger logger = LoggerFactory.getLogger(GameSession.class);
   private final String sessionId;
+  private final PinboardStateDTO pinboardState = new PinboardStateDTO();
   private final GameContextServer gameContext;
   private ClientSession player1;
   private ClientSession player2;
@@ -249,6 +255,14 @@ public class GameSession {
         }
       }
 
+      if (command instanceof UpdatePinboardCommand) {
+          handleUpdatePinboard((UpdatePinboardCommand) command, playerId);
+          return; // Handled separately
+      } else if (command instanceof RequestPinboardStateCommand) {
+          handleRequestPinboardState((RequestPinboardStateCommand) command, playerId);
+          return; // Handled separately
+      }
+
       if (commandAllowed) {
         gameContext.executeCommand(command);
       } else {
@@ -331,6 +345,94 @@ public class GameSession {
     if (player1 != null && player1.getPlayerId().equals(currentPlayerId)) return player2;
     if (player2 != null && player2.getPlayerId().equals(currentPlayerId)) return player1;
     return null;
+  }
+
+  private void handleUpdatePinboard(UpdatePinboardCommand command, String senderId) {
+      // 1. Broadcast to other players
+      broadcast(command, senderId);
+
+      // 2. Update local state (Simplified reducer)
+      // Note: This is a basic reducer to keep state for new joiners.
+      // Complex updates (like text area partial updates) might rely on "last write wins" or full replacements in DTO.
+      // PinboardUpdateDTO is granular.
+      PinboardUpdateDTO update = command.getUpdate();
+      if (update == null) return;
+
+      // Lazy initialization of lists
+      if (pinboardState.getItems() == null) pinboardState.setItems(new ArrayList<>());
+      if (pinboardState.getLinks() == null) pinboardState.setLinks(new ArrayList<>());
+      if (pinboardState.getTemplateData() == null) pinboardState.setTemplateData(new java.util.HashMap<>());
+      if (pinboardState.getTemplateDroppedItems() == null) pinboardState.setTemplateDroppedItems(new java.util.HashMap<>());
+
+      switch (update.getType()) {
+          case ADD_ITEM:
+              if (update.getItem() != null) pinboardState.getItems().add(update.getItem());
+              break;
+          case REMOVE_ITEM:
+              if (update.getTargetId() != null) {
+                  pinboardState.getItems().removeIf(i -> i.getId().equals(update.getTargetId()));
+              }
+              break;
+          case MOVE_ITEM:
+              if (update.getTargetId() != null) {
+                  for (common.dto.pinboard.PinboardItemDTO item : pinboardState.getItems()) {
+                      if (item.getId().equals(update.getTargetId())) {
+                          item.setX(update.getNewX());
+                          item.setY(update.getNewY());
+                          break;
+                      }
+                  }
+              }
+              break;
+          case RESIZE_ITEM:
+              if (update.getTargetId() != null && update.getItem() != null) {
+                  for (common.dto.pinboard.PinboardItemDTO item : pinboardState.getItems()) {
+                      if (item.getId().equals(update.getTargetId())) {
+                          item.setWidth(update.getItem().getWidth());
+                          item.setHeight(update.getItem().getHeight());
+                          break;
+                      }
+                  }
+              }
+              break;
+          case UPDATE_CONTENT:
+              if (update.getTargetId() != null && update.getValue() != null) {
+                  for (common.dto.pinboard.PinboardItemDTO item : pinboardState.getItems()) {
+                      if (item.getId().equals(update.getTargetId())) {
+                          item.setContent(update.getValue());
+                          break;
+                      }
+                  }
+              }
+              break;
+          case ADD_LINK:
+              if (update.getLink() != null) pinboardState.getLinks().add(update.getLink());
+              break;
+          case REMOVE_LINK:
+              if (update.getLink() != null) {
+                  pinboardState.getLinks().removeIf(l ->
+                      l.getStartItemId().equals(update.getLink().getStartItemId()) &&
+                      l.getEndItemId().equals(update.getLink().getEndItemId()));
+              }
+              break;
+          case UPDATE_TEMPLATE_NOTE:
+              if (update.getKey() != null && update.getValue() != null) {
+                  pinboardState.getTemplateData().put(update.getKey(), update.getValue());
+              }
+              break;
+          // UPDATE_TEMPLATE_DROP and others can be implemented similarly if needed for full persistence
+          case CLEAR_BOARD:
+              pinboardState.getItems().clear();
+              pinboardState.getLinks().clear();
+              break;
+      }
+  }
+
+  private void handleRequestPinboardState(RequestPinboardStateCommand command, String senderId) {
+      ClientSession sender = getClientSessionById(senderId);
+      if (sender != null) {
+          sender.send(new PinboardStateResponseCommand(pinboardState));
+      }
   }
 
 public void playerCancelsLobby(String playerId) {

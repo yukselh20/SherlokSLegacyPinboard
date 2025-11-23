@@ -1532,6 +1532,12 @@ public class MainController implements GameClientStateListener {
         isSinglePlayer = false;
         currentMultiplayerSubState = UIMultiplayerSubState.IN_GAME;
         currentState = UIState.GAME_MULTI;
+
+        if (gameClient != null) {
+            initializePinboardNetworking();
+            gameClient.sendPinboardStateRequest();
+        }
+
         Platform.runLater(() -> {
             roomPane.getChildren().clear();
             roomPane.getChildren().add(roomView);
@@ -1543,6 +1549,33 @@ public class MainController implements GameClientStateListener {
             exitButton.setVisible(true);
             rightInfoPanel.setVisible(true);
             updateRoomView(initialRoom);
+        });
+    }
+
+    private void initializePinboardNetworking() {
+        if (pinboardController == null) {
+            pinboardController = new PinboardController();
+        }
+
+        // 1. Outgoing updates: Pinboard -> Server
+        pinboardController.setOnUpdateCallback(update -> {
+            if (gameClient != null) {
+                gameClient.sendPinboardUpdate(update);
+            }
+        });
+
+        // 2. Incoming updates: Server -> Pinboard
+        gameClient.setPinboardUpdateListener(update -> {
+            if (pinboardController != null) {
+                pinboardController.applyUpdate(update);
+            }
+        });
+
+        // 3. Initial State: Server -> Pinboard
+        gameClient.setPinboardStateListener(state -> {
+            if (pinboardController != null) {
+                Platform.runLater(() -> pinboardController.applyState(state));
+            }
         });
     }
 
