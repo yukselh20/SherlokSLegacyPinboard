@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import common.dto.JournalEntryDTO;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -27,6 +28,7 @@ public class PinboardController {
     private final Map<String, Node> itemNodeMap = new HashMap<>();
     private final Map<PinboardLinkModel, Line> linkNodeMap = new HashMap<>();
     private final Map<String, TextArea> templateNotesMap = new HashMap<>();
+    private final Map<String, VBox> templateDropTargetsMap = new HashMap<>();
 
     // State
     private boolean isLinkMode = false;
@@ -154,7 +156,7 @@ public class PinboardController {
         rightPanel.setPadding(new Insets(5));
         root.setRight(rightPanel);
 
-        Scene scene = new Scene(root, 1000, 700);
+        Scene scene = new Scene(root, 1200, 900);
         stage.setScene(scene);
         stage.setTitle("Detective Pinboard");
 
@@ -192,6 +194,8 @@ public class PinboardController {
         dropLabel.setTextFill(Color.GRAY);
         dropTarget.getChildren().add(dropLabel);
         dropTarget.setAlignment(javafx.geometry.Pos.CENTER);
+
+        templateDropTargetsMap.put(title, dropTarget);
 
         dropTarget.setOnDragOver(e -> {
             if (e.getDragboard().hasString()) e.acceptTransferModes(TransferMode.COPY_OR_MOVE);
@@ -249,15 +253,27 @@ public class PinboardController {
         }
         addedJournalEntryIds.add(refId);
 
+        // Smart Title Generation
+        String text = entry.getText();
+        String smartTitle = "Journal Entry";
+        if (text.toLowerCase().contains("ask") || text.toLowerCase().contains("question")) {
+            smartTitle = "Questioning";
+            // Try to extract name? For now just generic type.
+        } else if (text.toLowerCase().contains("deduce") || text.toLowerCase().contains("deduction")) {
+            smartTitle = "Deduction";
+        } else if (text.toLowerCase().contains("found") || text.toLowerCase().contains("examine")) {
+            smartTitle = "Evidence";
+        }
+
         // Create a draggable card in the left sidebar
         HBox card = new HBox();
         card.getStyleClass().add("pinboard-item");
         card.setStyle("-fx-background-color: #e0e0e0; -fx-cursor: hand;");
 
         VBox contentBox = new VBox(2);
-        Label title = new Label("Journal Entry"); // Could parse date/time as title
+        Label title = new Label(smartTitle);
         title.getStyleClass().add("pinboard-item-title");
-        Label content = new Label(entry.getText());
+        Label content = new Label(text);
         content.getStyleClass().add("pinboard-item-content");
         content.setMaxWidth(160);
         content.setWrapText(true);
@@ -266,11 +282,12 @@ public class PinboardController {
         card.getChildren().add(contentBox);
 
         // Drag source
+        final String finalSmartTitle = smartTitle;
         card.setOnDragDetected(e -> {
             Dragboard db = card.startDragAndDrop(TransferMode.COPY);
             ClipboardContent cc = new ClipboardContent();
             // Format: TYPE|TITLE|CONTENT|REF_ID
-            cc.putString("EVIDENCE|Journal Entry|" + entry.getText() + "|" + refId);
+            cc.putString("EVIDENCE|" + finalSmartTitle + "|" + text + "|" + refId);
             db.setContent(cc);
             e.consume();
         });
@@ -305,6 +322,7 @@ public class PinboardController {
     private Node createItemNode(PinboardItemModel item) {
         VBox box = new VBox(2);
         box.setPrefSize(item.getWidth(), item.getHeight());
+        box.setMinSize(100, 80); // Minimum size
         box.getStyleClass().add("pinboard-item");
         box.setStyle("-fx-background-color: " + item.getColor() + ";");
 
@@ -319,11 +337,45 @@ public class PinboardController {
         contentArea.setStyle("-fx-background-color: transparent; -fx-control-inner-background: transparent; -fx-text-fill: black;");
         VBox.setVgrow(contentArea, Priority.ALWAYS);
 
+        // Resize Handle
+        Label resizeHandle = new Label("◢");
+        resizeHandle.setTextFill(Color.GRAY);
+        resizeHandle.setStyle("-fx-cursor: se-resize; -fx-font-size: 10px;");
+        resizeHandle.setAlignment(Pos.BOTTOM_RIGHT);
+        resizeHandle.setMaxWidth(Double.MAX_VALUE);
+
+        resizeHandle.setOnMouseDragged(e -> {
+            double newWidth = Math.max(100, e.getX() + resizeHandle.getBoundsInParent().getMinX()); // Simplified
+            // Better approach: calculate delta from mouse
+            // But since handle is inside, let's use scene coordinates
+        });
+
+        // Re-implement resize correctly using wrapper or event filter
+        // A simpler way for VBox:
+        HBox bottomBar = new HBox(resizeHandle);
+        bottomBar.setAlignment(Pos.BOTTOM_RIGHT);
+        bottomBar.setPadding(new Insets(0, 2, 0, 0));
+
+        resizeHandle.setOnMousePressed(e -> {
+            e.consume(); // Prevent drag of parent
+        });
+        resizeHandle.setOnMouseDragged(e -> {
+            // This logic is tricky because handle moves.
+            // Let's use the box's layout
+            double newW = Math.max(100, e.getSceneX() - box.localToScene(0,0).getX());
+            double newH = Math.max(80, e.getSceneY() - box.localToScene(0,0).getY());
+            box.setPrefSize(newW, newH);
+            item.setWidth(newW);
+            item.setHeight(newH);
+            updateLinks(item); // Force redraw of links
+            e.consume();
+        });
+
         // Update model on change
         titleField.textProperty().addListener((obs, o, n) -> item.setTitle(n));
         contentArea.textProperty().addListener((obs, o, n) -> item.setContent(n));
 
-        box.getChildren().addAll(titleField, contentArea);
+        box.getChildren().addAll(titleField, contentArea, bottomBar);
 
         // Dragging logic on the canvas
         makeDraggable(box, item);
@@ -455,6 +507,19 @@ public class PinboardController {
         }
         model.setTemplateData(tData);
 
+        // Save template dropped items
+        Map<String, List<String>> droppedItemsMap = new HashMap<>();
+        for (Map.Entry<String, VBox> entry : templateDropTargetsMap.entrySet()) {
+            List<String> items = new ArrayList<>();
+            for (Node child : entry.getValue().getChildren()) {
+                if (child instanceof Label && ((Label) child).getText().startsWith("• ")) {
+                    items.add(((Label) child).getText().substring(2) + "|" + ((Label) child).getTooltip().getText());
+                }
+            }
+            droppedItemsMap.put(entry.getKey(), items);
+        }
+        model.setTemplateDroppedItems(droppedItemsMap);
+
         ObjectMapper mapper = new ObjectMapper();
         try {
             mapper.writeValue(getSaveFile(), model);
@@ -492,6 +557,32 @@ public class PinboardController {
                     TextArea area = templateNotesMap.get(entry.getKey());
                     if (area != null) {
                         area.setText(entry.getValue());
+                    }
+                }
+            }
+
+            // Restore dropped items
+            if (model.getTemplateDroppedItems() != null) {
+                for (Map.Entry<String, List<String>> entry : model.getTemplateDroppedItems().entrySet()) {
+                    VBox target = templateDropTargetsMap.get(entry.getKey());
+                    if (target != null) {
+                        // Hide placeholder
+                        target.getChildren().forEach(n -> {
+                            if (n instanceof Label && "Drop Evidence Here".equals(((Label) n).getText())) {
+                                n.setVisible(false);
+                            }
+                        });
+
+                        for (String itemStr : entry.getValue()) {
+                            String[] parts = itemStr.split("\\|", 2);
+                            String text = parts[0];
+                            String tooltip = parts.length > 1 ? parts[1] : "";
+
+                            Label itemLabel = new Label("• " + text);
+                            itemLabel.setTooltip(new Tooltip(tooltip));
+                            itemLabel.setTextFill(Color.LIGHTGRAY);
+                            target.getChildren().add(itemLabel);
+                        }
                     }
                 }
             }
