@@ -43,8 +43,10 @@ public class PinboardController {
     // UI Components
     private ScrollPane canvasScrollPane;
     private VBox templateVBox;
+    private ComboBox<String> linkColorSelector;
 
-    private final Set<String> addedJournalEntryIds = new HashSet<>();
+    // Removed addedJournalEntryIds set to allow sync/reload
+    // private final Set<String> addedJournalEntryIds = new HashSet<>();
 
     public PinboardController() {
         this.stage = new Stage();
@@ -72,19 +74,21 @@ public class PinboardController {
             }
         });
 
+        linkColorSelector = new ComboBox<>();
+        linkColorSelector.getItems().addAll("Green", "Yellow", "Red");
+        linkColorSelector.setValue("Red");
+        linkColorSelector.setPromptText("Link Color");
+
         Button deleteBtn = new Button("Delete");
         deleteBtn.setOnAction(e -> deleteSelectedItem());
 
         Button clearBtn = new Button("Clear Board");
         clearBtn.setOnAction(e -> clearBoard());
 
-        Button saveBtn = new Button("Save");
-        saveBtn.setOnAction(e -> savePinboard());
+        Button syncBtn = new Button("Sync Journal");
+        syncBtn.setOnAction(e -> syncJournal());
 
-        Button loadBtn = new Button("Load");
-        loadBtn.setOnAction(e -> loadPinboard());
-
-        toolBar.getItems().addAll(addNoteBtn, linkModeBtn, new Separator(), deleteBtn, clearBtn, new Separator(), saveBtn, loadBtn);
+        toolBar.getItems().addAll(addNoteBtn, linkModeBtn, linkColorSelector, new Separator(), deleteBtn, clearBtn, new Separator(), syncBtn);
         root.setTop(toolBar);
 
         // --- Center: Canvas ---
@@ -215,7 +219,7 @@ public class PinboardController {
 
     public void reset() {
         clearBoard();
-        addedJournalEntryIds.clear();
+        // addedJournalEntryIds.clear(); // Removed
         nextItemX = 50;
         nextItemY = 50;
         // Clear template notes manually if we want to reset them too?
@@ -232,12 +236,13 @@ public class PinboardController {
     }
 
     public void addJournalEntry(JournalEntryDTO entry) {
-        // Prevent duplicates
+        // Prevent duplicates by checking if item exists on board
         String refId = String.valueOf(Objects.hash(entry.getText(), entry.getTimestamp()));
-        if (addedJournalEntryIds.contains(refId)) {
+        boolean exists = items.stream().anyMatch(item -> refId.equals(item.getRelatedJournalEntryId()));
+        if (exists) {
             return;
         }
-        addedJournalEntryIds.add(refId);
+        // addedJournalEntryIds.add(refId); // Removed
 
         // Smart Title Generation
         String text = entry.getText();
@@ -459,7 +464,8 @@ public class PinboardController {
             }
         }
 
-        PinboardLinkModel link = new PinboardLinkModel(startId, endId);
+        String color = linkColorSelector.getValue() != null ? linkColorSelector.getValue().toUpperCase() : "RED";
+        PinboardLinkModel link = new PinboardLinkModel(startId, endId, color);
         links.add(link);
         drawLink(link);
     }
@@ -473,7 +479,16 @@ public class PinboardController {
             Region endRegion = (Region) endNode;
 
             Line line = new Line();
-            line.setStroke(Color.RED);
+
+            Color strokeColor;
+            switch (link.getColor()) {
+                case "GREEN": strokeColor = Color.GREEN; break;
+                case "YELLOW": strokeColor = Color.YELLOW; break;
+                case "RED":
+                default: strokeColor = Color.RED; break;
+            }
+
+            line.setStroke(strokeColor);
             line.setStrokeWidth(2);
             // Bind coordinates
             line.startXProperty().bind(startRegion.layoutXProperty().add(startRegion.widthProperty().divide(2)));
@@ -550,8 +565,33 @@ public class PinboardController {
         }
     }
 
-    private void loadPinboard() {
-        loadPinboardFromFile(getSaveFile());
+    private void syncJournal() {
+        // Sync functionality is handled by MainController calling addJournalEntry.
+        // But if we want to manually trigger a re-sync, we need access to the data source.
+        // Currently, addJournalEntry handles deduplication.
+        // So this button essentially is a placeholder or confirmation.
+        // However, MainController pushes data to us. We don't pull data.
+        // To make this button functional, we'd need a callback or just trust MainController updates.
+        // BUT the user asked to "load the journal entries back to the pinboard".
+        // If the user clears the board, they might want to get the journal entries back.
+        // So we need to reset the addedJournalEntryIds so they can be re-added?
+        // No, MainController only calls addJournalEntry when a NEW entry happens or on load.
+        // If we want to "Reload", we really need to ask MainController to send us everything again.
+        // For now, let's just make it clear the tracking so duplicates can be re-added if pushed again?
+        // Actually, the simplest interpretation is that the user cleared the board and wants the journal cards back.
+        // But we don't store the journal history here.
+        // Let's rely on the auto-save loading for now, but since we removed the Load button...
+        // Wait, if "Sync" is clicked, we assume the user wants to fetch data.
+        // Since we don't have a reference to the Game Engine here, we might need a Functional Interface callback.
+        if (onSyncRequest != null) {
+            onSyncRequest.run();
+        }
+    }
+
+    private Runnable onSyncRequest;
+
+    public void setOnSyncRequest(Runnable onSyncRequest) {
+        this.onSyncRequest = onSyncRequest;
     }
 
     private void loadPinboardFromFile(File file) {
@@ -564,9 +604,9 @@ public class PinboardController {
 
             for (PinboardItemModel item : model.getItems()) {
                 addItemToBoard(item);
-                if (item.getRelatedJournalEntryId() != null) {
-                    addedJournalEntryIds.add(item.getRelatedJournalEntryId());
-                }
+                // if (item.getRelatedJournalEntryId() != null) {
+                //    addedJournalEntryIds.add(item.getRelatedJournalEntryId());
+                // }
             }
 
             // Re-create links after all items are added

@@ -1086,6 +1086,7 @@ public class MainController implements GameClientStateListener {
             }
         }
 
+        pinboardController.setOnSyncRequest(this::syncPinboardData);
         pinboardController.show();
     }
 

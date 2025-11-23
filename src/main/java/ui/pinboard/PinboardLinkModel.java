@@ -7,6 +7,7 @@ public class PinboardLinkModel implements Serializable {
 
     private String startItemId;
     private String endItemId;
+    private String color = "RED"; // Default color
 
     public PinboardLinkModel() {
     }
@@ -14,6 +15,12 @@ public class PinboardLinkModel implements Serializable {
     public PinboardLinkModel(String startItemId, String endItemId) {
         this.startItemId = startItemId;
         this.endItemId = endItemId;
+    }
+
+    public PinboardLinkModel(String startItemId, String endItemId, String color) {
+        this.startItemId = startItemId;
+        this.endItemId = endItemId;
+        this.color = color;
     }
 
     public String getStartItemId() {
@@ -30,5 +37,13 @@ public class PinboardLinkModel implements Serializable {
 
     public void setEndItemId(String endItemId) {
         this.endItemId = endItemId;
+    }
+
+    public String getColor() {
+        return color;
+    }
+
+    public void setColor(String color) {
+        this.color = color;
     }
 }
