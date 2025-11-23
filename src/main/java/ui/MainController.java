@@ -50,6 +50,7 @@ import ui.windows.ChatWindow;
 import ui.windows.JournalWindow;
 import ui.windows.TasksWindow;
 import ui.windows.HelpWindow;
+import ui.pinboard.PinboardController;
 
 public class MainController implements GameClientStateListener {
 
@@ -91,6 +92,8 @@ public class MainController implements GameClientStateListener {
     @FXML
     private Button journalButton;
     @FXML
+    private Button pinboardButton;
+    @FXML
     private Button chatButton;
     @FXML
     private Button helpButton;
@@ -119,6 +122,7 @@ public class MainController implements GameClientStateListener {
     private ChatWindow chatWindow;
     private TasksWindow tasksWindow;
     private HelpWindow helpWindow;
+    private PinboardController pinboardController;
     private RoomView roomView;
     private int unreadChatCount = 0;
 
@@ -162,6 +166,10 @@ public class MainController implements GameClientStateListener {
         journalButton.setOnAction(event -> {
             playSound("pageflip.mp3");
             openJournalWindow();
+        });
+        pinboardButton.setOnAction(event -> {
+            playSound("click.wav"); // Reuse click sound
+            openPinboardWindow();
         });
         chatButton.setOnAction(event -> {
             playSound("click.wav");
@@ -325,6 +333,7 @@ public class MainController implements GameClientStateListener {
     private void setupButtonIcons() {
         setButtonIcon(tasksButton, "/icons/tasks.png");
         setButtonIcon(journalButton, "/icons/journal.png");
+        setButtonIcon(pinboardButton, "/icons/journal.png"); // Reuse journal icon for now
         setButtonIcon(chatButton, "/icons/chat.png");
     }
 
@@ -436,6 +445,7 @@ public class MainController implements GameClientStateListener {
                     // These states manage their own views, but we need to ensure game buttons are off
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
+                    pinboardButton.setVisible(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -444,6 +454,7 @@ public class MainController implements GameClientStateListener {
                 case CASE_INVITATION:
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
+                    pinboardButton.setVisible(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(isHostPlayer); // Only host can exit at this stage
@@ -461,6 +472,7 @@ public class MainController implements GameClientStateListener {
                     terminalTextArea.appendText("5. Quit\n");
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
+                    pinboardButton.setVisible(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -477,6 +489,7 @@ public class MainController implements GameClientStateListener {
                     nextView = joinGameMenu;
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
+                    pinboardButton.setVisible(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -485,6 +498,7 @@ public class MainController implements GameClientStateListener {
                 case MULTIPLAYER_MENU:
                     tasksButton.setVisible(false);
                     journalButton.setVisible(false);
+                    pinboardButton.setVisible(false);
                     chatButton.setVisible(false);
                     helpButton.setVisible(false);
                     exitButton.setVisible(false);
@@ -494,6 +508,7 @@ public class MainController implements GameClientStateListener {
                     nextView = roomView;
                     tasksButton.setVisible(true);
                     journalButton.setVisible(true);
+                    pinboardButton.setVisible(true);
                     chatButton.setVisible(false);
                     helpButton.setVisible(true);
                     exitButton.setVisible(true);
@@ -503,6 +518,7 @@ public class MainController implements GameClientStateListener {
                     nextView = roomView;
                     tasksButton.setVisible(true);
                     journalButton.setVisible(true);
+                    pinboardButton.setVisible(true);
                     chatButton.setVisible(true);
                     helpButton.setVisible(true);
                     exitButton.setVisible(true);
@@ -532,6 +548,9 @@ public class MainController implements GameClientStateListener {
         isSinglePlayer = true;
         isHostPlayer = true;
         taskStates.clear();
+        if (pinboardController != null) {
+            pinboardController.reset();
+        }
         // Clear the room view to prevent state bleeding from multiplayer
         updateRoomView(null);
         updateStatus("Starting Single Player...");
@@ -843,6 +862,9 @@ public class MainController implements GameClientStateListener {
         isSinglePlayer = false;
         isHostPlayer = false; // Guest by default, updated by server
         taskStates.clear();
+        if (pinboardController != null) {
+            pinboardController.reset();
+        }
         updateStatus("Starting Multiplayer Client...");
 
         // Use the configured host and port instead of launch args
@@ -1037,6 +1059,31 @@ public class MainController implements GameClientStateListener {
         journalWindow.show();
     }
 
+    private void openPinboardWindow() {
+        if (pinboardController == null) {
+            pinboardController = new PinboardController();
+        }
+
+        // Load existing clues if just opening for first time but game has progressed
+        if (isSinglePlayer && singlePlayerGame != null) {
+            List<common.dto.JournalEntryDTO> entries = singlePlayerGame.getGameContext().getJournalEntries(null);
+            if (entries != null) {
+                for (common.dto.JournalEntryDTO entry : entries) {
+                    pinboardController.addJournalEntry(entry);
+                }
+            }
+        } else if (!isSinglePlayer && gameClient != null) {
+            List<common.dto.JournalEntryDTO> entries = gameClient.getJournalEntries();
+            if (entries != null) {
+                for (common.dto.JournalEntryDTO entry : entries) {
+                    pinboardController.addJournalEntry(entry);
+                }
+            }
+        }
+
+        pinboardController.show();
+    }
+
     private void openChatWindow() {
         if (chatWindow == null) {
             chatWindow = new ChatWindow(this);
@@ -1140,6 +1187,28 @@ public class MainController implements GameClientStateListener {
         if (journalWindow != null) {
             Platform.runLater(this::openJournalWindow);
         }
+
+        // Also sync Pinboard if active
+        Platform.runLater(() -> {
+            if (pinboardController != null) {
+                // Re-sync all entries (inefficient but safe for now)
+                 if (isSinglePlayer && singlePlayerGame != null) {
+                    List<common.dto.JournalEntryDTO> entries = singlePlayerGame.getGameContext().getJournalEntries(null);
+                    if (entries != null) {
+                        for (common.dto.JournalEntryDTO entry : entries) {
+                            pinboardController.addJournalEntry(entry);
+                        }
+                    }
+                } else if (!isSinglePlayer && gameClient != null) {
+                    List<common.dto.JournalEntryDTO> entries = gameClient.getJournalEntries();
+                    if (entries != null) {
+                        for (common.dto.JournalEntryDTO entry : entries) {
+                            pinboardController.addJournalEntry(entry);
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private void updateRightPanel(RoomDescriptionDTO roomDescription) {
@@ -1186,6 +1255,8 @@ public class MainController implements GameClientStateListener {
                 journalWindow.addEntry(entry);
             });
         }
+        // Note: this method takes a String, but Pinboard needs DTO.
+        // The `refreshJournalWindow` calls getJournalEntries() which returns DTOs, so that handles the sync.
     }
 
     public void addChatMessage(String sender, String message) {
@@ -1451,6 +1522,7 @@ public class MainController implements GameClientStateListener {
             roomPane.getChildren().add(roomView);
             tasksButton.setVisible(true);
             journalButton.setVisible(true);
+            pinboardButton.setVisible(true);
             chatButton.setVisible(true);
             helpButton.setVisible(true);
             exitButton.setVisible(true);
