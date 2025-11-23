@@ -21,6 +21,12 @@
           <Font size="14"/>
         </font>
       </Button>
+
+      <Button fx:id="pinboardButton" text="Pinboard" styleClass="top-button">
+        <font>
+          <Font size="14"/>
+        </font>
+      </Button>
       
       <StackPane>
         <Button fx:id="chatButton" text="Chat" styleClass="top-button">
