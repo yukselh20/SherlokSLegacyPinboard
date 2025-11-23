@@ -756,7 +756,7 @@ public class MainController implements GameClientStateListener {
     }
 
     private void startJoinMultiplayer() {
-        boolean isGuiMode = isGuiMode();
+        boolean isGuiMode = taos != null; // Use the presence of the TextAreaOutputStream to determine GUI mode.
 
         if (discoveryService instanceof UdpLanGameDiscoveryService) {
             ((UdpLanGameDiscoveryService) discoveryService).start();
@@ -765,7 +765,6 @@ public class MainController implements GameClientStateListener {
         if (isGuiMode) {
             currentState = UIState.JOIN_GAME_MENU;
             updateUIVisibility();
-            refreshPublicGamesList(); // Automatically refresh on showing the menu
         } else {
             // Terminal-based flow
             currentState = UIState.JOIN_MENU_TERMINAL;
@@ -1439,16 +1438,8 @@ public class MainController implements GameClientStateListener {
     @Override
     public void onJoinGameOptions() {
         currentMultiplayerSubState = UIMultiplayerSubState.JOIN_OPTIONS;
-
-        // For GUI mode, immediately switch to the unified join menu and refresh.
-        if (isGuiMode()) {
-            currentState = UIState.JOIN_GAME_MENU;
-            updateUIVisibility();
-            refreshPublicGamesList(); // Automatically refresh
-            return; // Skip terminal-specific logic
-        }
-
-        // For terminal mode, display the text-based options.
+        currentState = UIState.MULTIPLAYER_MENU;
+        updateUIVisibility();
         Platform.runLater(() -> {
             terminalTextArea.clear();
             terminalTextArea.appendText("--- Join Game Options ---\n");
@@ -1456,6 +1447,17 @@ public class MainController implements GameClientStateListener {
             terminalTextArea.appendText("2. Join Private Game\n");
             terminalTextArea.appendText("3. Back\n");
             terminalTextArea.appendText("-----------------------\n");
+            VBox joinOptionsBox = new VBox(15);
+            joinOptionsBox.setAlignment(Pos.CENTER);
+            Button publicButton = new Button("Join Public Game");
+            publicButton.setOnAction(event -> sendCommand("1"));
+            Button privateButton = new Button("Join Private Game");
+            privateButton.setOnAction(event -> sendCommand("2"));
+            Button backButton = new Button("Back");
+            backButton.setOnAction(event -> sendCommand("3"));
+            joinOptionsBox.getChildren().addAll(publicButton, privateButton, backButton);
+            roomPane.getChildren().clear();
+            roomPane.getChildren().add(joinOptionsBox);
         });
     }
 
@@ -1592,9 +1594,5 @@ public class MainController implements GameClientStateListener {
                 }
             }
         });
-    }
-
-    private boolean isGuiMode() {
-        return taos != null;
     }
 }
