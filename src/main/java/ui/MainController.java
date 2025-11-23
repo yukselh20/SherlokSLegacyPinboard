@@ -940,6 +940,11 @@ public class MainController implements GameClientStateListener {
             ((UdpLanGameDiscoveryService) discoveryService).stop();
         }
         shutdownEmbeddedServer(); // Ensure server is stopped on app exit
+
+        if (pinboardController != null) {
+            pinboardController.savePinboard();
+        }
+
         System.out.println("\nShutting down application...");
         if (gameClient != null) {
             gameClient.stopClient();

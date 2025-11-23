@@ -301,9 +301,10 @@ public class PinboardController {
         box.getStyleClass().add("pinboard-item");
         box.setStyle("-fx-background-color: " + item.getColor() + ";");
 
-        TextField titleField = new TextField(item.getTitle());
-        titleField.getStyleClass().add("pinboard-item-title");
-        titleField.setStyle("-fx-background-color: transparent; -fx-border-width: 0;");
+        Label titleLabel = new Label(item.getTitle());
+        titleLabel.getStyleClass().add("pinboard-item-title");
+        titleLabel.setStyle("-fx-background-color: transparent; -fx-border-width: 0; -fx-font-weight: bold;");
+        titleLabel.setMaxWidth(Double.MAX_VALUE);
 
         TextArea contentArea = new TextArea(item.getContent());
         contentArea.getStyleClass().add("pinboard-item-content");
@@ -317,13 +318,6 @@ public class PinboardController {
         resizeHandle.setTextFill(Color.GRAY);
         resizeHandle.setStyle("-fx-cursor: se-resize; -fx-font-size: 10px;");
         resizeHandle.setAlignment(Pos.BOTTOM_RIGHT);
-        resizeHandle.setMaxWidth(Double.MAX_VALUE);
-
-        resizeHandle.setOnMouseDragged(e -> {
-            double newWidth = Math.max(100, e.getX() + resizeHandle.getBoundsInParent().getMinX()); // Simplified
-            // Better approach: calculate delta from mouse
-            // But since handle is inside, let's use scene coordinates
-        });
 
         // Re-implement resize correctly using wrapper or event filter
         // A simpler way for VBox:
@@ -350,13 +344,9 @@ public class PinboardController {
         });
 
         // Update model on change
-        titleField.textProperty().addListener((obs, o, n) -> item.setTitle(n));
+        // Title editing removed per user request to fix cursor issues and dragging.
+        // If title updates are needed, implement double-click handler on titleLabel.
         contentArea.textProperty().addListener((obs, o, n) -> item.setContent(n));
-
-        box.getChildren().addAll(titleField, contentArea, bottomBar);
-
-        // Dragging logic on the canvas
-        makeDraggable(box, item);
 
         // Drag Here Hint (small text in title area)
         Label dragHint = new Label("Drag to Template");
@@ -370,10 +360,13 @@ public class PinboardController {
             db.setContent(cc);
             e.consume();
         });
+        dragHint.setOnMousePressed(e -> e.consume()); // Prevent window drag start
 
-        StackPane titleStack = new StackPane(titleField, dragHint);
+        StackPane titleStack = new StackPane(titleLabel, dragHint);
+        StackPane.setAlignment(titleLabel, Pos.CENTER_LEFT);
         StackPane.setAlignment(dragHint, Pos.CENTER_RIGHT);
         StackPane.setMargin(dragHint, new Insets(0, 5, 0, 0));
+        StackPane.setMargin(titleLabel, new Insets(0, 60, 0, 5)); // Leave space for hint
 
         // Link logic & Selection
         box.setOnMouseClicked(e -> {
@@ -382,13 +375,16 @@ public class PinboardController {
             } else {
                 selectItem(item, box);
             }
+            // Do not consume here if we want drag to work?
+            // Actually drag is handled by MousePressed/Dragged filters or handlers.
+            // MouseClicked happens after drag if movement is small.
+            // So consuming here is fine for selection logic.
             e.consume();
         });
 
-        box.getChildren().clear(); // Rebuild children with hint
         box.getChildren().addAll(titleStack, contentArea, bottomBar);
 
-        // Dragging logic
+        // Dragging logic on the canvas
         makeDraggable(box, item);
 
         return box;
@@ -520,7 +516,7 @@ public class PinboardController {
         canvas.getChildren().remove(line);
     }
 
-    private void savePinboard() {
+    public void savePinboard() {
         PinboardModel model = new PinboardModel();
         model.setItems(items);
         model.setLinks(links);
@@ -568,6 +564,9 @@ public class PinboardController {
 
             for (PinboardItemModel item : model.getItems()) {
                 addItemToBoard(item);
+                if (item.getRelatedJournalEntryId() != null) {
+                    addedJournalEntryIds.add(item.getRelatedJournalEntryId());
+                }
             }
 
             // Re-create links after all items are added
