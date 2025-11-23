@@ -33,6 +33,7 @@ public class PinboardController {
 
     // State
     private boolean isLinkMode = false;
+    private boolean isDeleteLinkMode = false;
     private String linkStartId = null;
     private PinboardItemModel draggedItem = null;
     private PinboardItemModel selectedItem = null;
@@ -67,9 +68,21 @@ public class PinboardController {
         addNoteBtn.setOnAction(e -> createNoteAtCenter());
 
         ToggleButton linkModeBtn = new ToggleButton("Link Mode");
+
+        ToggleButton deleteLinkModeBtn = new ToggleButton("Delete Link");
+        deleteLinkModeBtn.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            isDeleteLinkMode = newVal;
+            if (isDeleteLinkMode) {
+                 linkModeBtn.setSelected(false); // Mutually exclusive
+            }
+        });
+
         linkModeBtn.selectedProperty().addListener((obs, oldVal, newVal) -> {
             isLinkMode = newVal;
-            if (!isLinkMode) {
+            if (isLinkMode) {
+                deleteLinkModeBtn.setSelected(false);
+                linkStartId = null;
+            } else {
                 linkStartId = null;
             }
         });
@@ -88,7 +101,7 @@ public class PinboardController {
         Button syncBtn = new Button("Sync Journal");
         syncBtn.setOnAction(e -> syncJournal());
 
-        toolBar.getItems().addAll(addNoteBtn, linkModeBtn, linkColorSelector, new Separator(), deleteBtn, clearBtn, new Separator(), syncBtn);
+        toolBar.getItems().addAll(addNoteBtn, linkModeBtn, deleteLinkModeBtn, linkColorSelector, new Separator(), deleteBtn, clearBtn, new Separator(), syncBtn);
         root.setTop(toolBar);
 
         // --- Center: Canvas ---
@@ -496,9 +509,11 @@ public class PinboardController {
             line.endXProperty().bind(endRegion.layoutXProperty().add(endRegion.widthProperty().divide(2)));
             line.endYProperty().bind(endRegion.layoutYProperty().add(endRegion.heightProperty().divide(2)));
 
-            // Allow right click to remove link
+            // Allow right click or delete mode to remove link
             line.setOnMouseClicked(e -> {
-                if (e.getButton() == MouseButton.SECONDARY) {
+                if (isDeleteLinkMode) {
+                    removeLink(link);
+                } else if (e.getButton() == MouseButton.SECONDARY) {
                     removeLink(link);
                 }
             });
