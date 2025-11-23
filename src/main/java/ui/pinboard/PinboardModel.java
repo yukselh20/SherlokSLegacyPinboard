@@ -9,6 +9,7 @@ public class PinboardModel implements Serializable {
 
     private List<PinboardItemModel> items = new ArrayList<>();
     private List<PinboardLinkModel> links = new ArrayList<>();
+    private java.util.Map<String, String> templateData = new java.util.HashMap<>();
 
     public List<PinboardItemModel> getItems() {
         return items;
@@ -24,5 +25,13 @@ public class PinboardModel implements Serializable {
 
     public void setLinks(List<PinboardLinkModel> links) {
         this.links = links;
+    }
+
+    public java.util.Map<String, String> getTemplateData() {
+        return templateData;
+    }
+
+    public void setTemplateData(java.util.Map<String, String> templateData) {
+        this.templateData = templateData;
     }
 }

@@ -1060,6 +1060,7 @@ public class MainController implements GameClientStateListener {
 
     private void openPinboardWindow() {
         if (pinboardController == null) {
+            System.out.println("Initializing Pinboard Controller...");
             pinboardController = new PinboardController();
         }
 
@@ -1190,24 +1191,29 @@ public class MainController implements GameClientStateListener {
         // Also sync Pinboard if active
         Platform.runLater(() -> {
             if (pinboardController != null) {
-                // Re-sync all entries (inefficient but safe for now)
-                 if (isSinglePlayer && singlePlayerGame != null) {
-                    List<common.dto.JournalEntryDTO> entries = singlePlayerGame.getGameContext().getJournalEntries(null);
-                    if (entries != null) {
-                        for (common.dto.JournalEntryDTO entry : entries) {
-                            pinboardController.addJournalEntry(entry);
-                        }
-                    }
-                } else if (!isSinglePlayer && gameClient != null) {
-                    List<common.dto.JournalEntryDTO> entries = gameClient.getJournalEntries();
-                    if (entries != null) {
-                        for (common.dto.JournalEntryDTO entry : entries) {
-                            pinboardController.addJournalEntry(entry);
-                        }
-                    }
-                }
+                syncPinboardData();
             }
         });
+    }
+
+    private void syncPinboardData() {
+        if (pinboardController == null) return;
+
+        if (isSinglePlayer && singlePlayerGame != null) {
+            List<common.dto.JournalEntryDTO> entries = singlePlayerGame.getGameContext().getJournalEntries(null);
+            if (entries != null) {
+                for (common.dto.JournalEntryDTO entry : entries) {
+                    pinboardController.addJournalEntry(entry);
+                }
+            }
+        } else if (!isSinglePlayer && gameClient != null) {
+            List<common.dto.JournalEntryDTO> entries = gameClient.getJournalEntries();
+            if (entries != null) {
+                for (common.dto.JournalEntryDTO entry : entries) {
+                    pinboardController.addJournalEntry(entry);
+                }
+            }
+        }
     }
 
     private void updateRightPanel(RoomDescriptionDTO roomDescription) {

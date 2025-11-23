@@ -26,6 +26,7 @@ public class PinboardController {
     private final List<PinboardLinkModel> links = new ArrayList<>();
     private final Map<String, Node> itemNodeMap = new HashMap<>();
     private final Map<PinboardLinkModel, Line> linkNodeMap = new HashMap<>();
+    private final Map<String, TextArea> templateNotesMap = new HashMap<>();
 
     // State
     private boolean isLinkMode = false;
@@ -158,10 +159,19 @@ public class PinboardController {
         stage.setTitle("Detective Pinboard");
 
         // Try to load auto-save on startup
-        File autoSave = new File("pinboard_autosave.json");
+        File autoSave = getSaveFile();
         if (autoSave.exists()) {
             loadPinboardFromFile(autoSave);
         }
+    }
+
+    private File getSaveFile() {
+        String userHome = System.getProperty("user.home");
+        File dir = new File(userHome, ".detective_game");
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        return new File(dir, "pinboard_autosave.json");
     }
 
     private void addTemplateSection(String title) {
@@ -172,6 +182,8 @@ public class PinboardController {
         notesArea.setPromptText("Type notes here...");
         notesArea.setPrefRowCount(3);
         notesArea.setWrapText(true);
+
+        templateNotesMap.put(title, notesArea);
 
         // Drop target for evidence
         VBox dropTarget = new VBox(5);
@@ -436,17 +448,24 @@ public class PinboardController {
         model.setItems(items);
         model.setLinks(links);
 
+        // Save template notes
+        Map<String, String> tData = new HashMap<>();
+        for (Map.Entry<String, TextArea> entry : templateNotesMap.entrySet()) {
+            tData.put(entry.getKey(), entry.getValue().getText());
+        }
+        model.setTemplateData(tData);
+
         ObjectMapper mapper = new ObjectMapper();
         try {
-            mapper.writeValue(new File("pinboard_autosave.json"), model);
-            System.out.println("Pinboard saved.");
+            mapper.writeValue(getSaveFile(), model);
+            System.out.println("Pinboard saved to " + getSaveFile().getAbsolutePath());
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     private void loadPinboard() {
-        loadPinboardFromFile(new File("pinboard_autosave.json"));
+        loadPinboardFromFile(getSaveFile());
     }
 
     private void loadPinboardFromFile(File file) {
@@ -465,6 +484,16 @@ public class PinboardController {
             for (PinboardLinkModel link : model.getLinks()) {
                 links.add(link);
                 drawLink(link);
+            }
+
+            // Restore template notes
+            if (model.getTemplateData() != null) {
+                for (Map.Entry<String, String> entry : model.getTemplateData().entrySet()) {
+                    TextArea area = templateNotesMap.get(entry.getKey());
+                    if (area != null) {
+                        area.setText(entry.getValue());
+                    }
+                }
             }
 
             System.out.println("Pinboard loaded.");
