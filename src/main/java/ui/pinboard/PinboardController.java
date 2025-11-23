@@ -1,6 +1,5 @@
 package ui.pinboard;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import common.dto.JournalEntryDTO;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
@@ -35,6 +34,7 @@ public class PinboardController {
     private boolean isLinkMode = false;
     private boolean isDeleteLinkMode = false;
     private String linkStartId = null;
+    private String deleteLinkStartId = null;
     private PinboardItemModel draggedItem = null;
     private PinboardItemModel selectedItem = null;
     private double dragDeltaX, dragDeltaY;
@@ -74,6 +74,7 @@ public class PinboardController {
             isDeleteLinkMode = newVal;
             if (isDeleteLinkMode) {
                  linkModeBtn.setSelected(false); // Mutually exclusive
+                 deleteLinkStartId = null;
             }
         });
 
@@ -163,20 +164,6 @@ public class PinboardController {
         stage.setScene(scene);
         stage.setTitle("Detective Pinboard");
 
-        // Try to load auto-save on startup
-        File autoSave = getSaveFile();
-        if (autoSave.exists()) {
-            loadPinboardFromFile(autoSave);
-        }
-    }
-
-    private File getSaveFile() {
-        String userHome = System.getProperty("user.home");
-        File dir = new File(userHome, ".detective_game");
-        if (!dir.exists()) {
-            dir.mkdirs();
-        }
-        return new File(dir, "pinboard_autosave.json");
     }
 
     private void addTemplateSection(String title) {
@@ -232,12 +219,19 @@ public class PinboardController {
 
     public void reset() {
         clearBoard();
-        // addedJournalEntryIds.clear(); // Removed
+        // Clear template notes
+        for (TextArea area : templateNotesMap.values()) {
+            area.clear();
+        }
+        // Clear dropped items in template
+        for (VBox box : templateDropTargetsMap.values()) {
+            // Keep the "Drop Evidence Here" label, remove others
+            box.getChildren().removeIf(node -> node instanceof Label && ((Label) node).getText().startsWith("• "));
+            box.getChildren().forEach(node -> node.setVisible(true)); // Show "Drop Here" again
+        }
+
         nextItemX = 50;
         nextItemY = 50;
-        // Clear template notes manually if we want to reset them too?
-        // For now, clearBoard only clears the canvas items.
-        // A full reset might need to clear the right panel text areas too.
     }
 
     private void clearBoard() {
@@ -390,6 +384,8 @@ public class PinboardController {
         box.setOnMouseClicked(e -> {
             if (isLinkMode) {
                 handleLinkClick(item);
+            } else if (isDeleteLinkMode) {
+                handleDeleteLinkClick(item);
             } else {
                 selectItem(item, box);
             }
@@ -460,11 +456,62 @@ public class PinboardController {
         if (linkStartId == null) {
             linkStartId = item.getId();
             // Highlight start node (optional)
+            Node node = itemNodeMap.get(linkStartId);
+            if (node != null) node.setStyle(node.getStyle() + "-fx-effect: dropshadow(three-pass-box, blue, 10, 0, 0, 0);");
         } else {
             if (!linkStartId.equals(item.getId())) {
                 createLink(linkStartId, item.getId());
             }
+            // Reset style of start node
+            Node node = itemNodeMap.get(linkStartId);
+            if (node != null) {
+                 // Re-apply selection style if it was selected, otherwise remove effect
+                 // Simpler: Just refresh selection visual state or clear effect
+                 if (selectedItem != null && selectedItem.getId().equals(linkStartId)) {
+                      selectItem(selectedItem, node);
+                 } else {
+                     node.setStyle(node.getStyle().replace("-fx-effect: dropshadow(three-pass-box, blue, 10, 0, 0, 0);", ""));
+                 }
+            }
             linkStartId = null;
+        }
+    }
+
+    private void handleDeleteLinkClick(PinboardItemModel item) {
+        if (deleteLinkStartId == null) {
+            deleteLinkStartId = item.getId();
+            // Visual feedback for start of deletion (maybe different color)
+            Node node = itemNodeMap.get(deleteLinkStartId);
+            if (node != null) node.setStyle(node.getStyle() + "-fx-effect: dropshadow(three-pass-box, red, 10, 0, 0, 0);");
+        } else {
+            if (!deleteLinkStartId.equals(item.getId())) {
+                removeLinkBetween(deleteLinkStartId, item.getId());
+            }
+
+            // Reset visual feedback
+            Node node = itemNodeMap.get(deleteLinkStartId);
+            if (node != null) {
+                 if (selectedItem != null && selectedItem.getId().equals(deleteLinkStartId)) {
+                      selectItem(selectedItem, node);
+                 } else {
+                     node.setStyle(node.getStyle().replace("-fx-effect: dropshadow(three-pass-box, red, 10, 0, 0, 0);", ""));
+                 }
+            }
+            deleteLinkStartId = null;
+        }
+    }
+
+    private void removeLinkBetween(String startId, String endId) {
+        PinboardLinkModel target = null;
+        for (PinboardLinkModel link : links) {
+             if ((link.getStartItemId().equals(startId) && link.getEndItemId().equals(endId)) ||
+                 (link.getStartItemId().equals(endId) && link.getEndItemId().equals(startId))) {
+                 target = link;
+                 break;
+             }
+        }
+        if (target != null) {
+            removeLink(target);
         }
     }
 
@@ -509,11 +556,9 @@ public class PinboardController {
             line.endXProperty().bind(endRegion.layoutXProperty().add(endRegion.widthProperty().divide(2)));
             line.endYProperty().bind(endRegion.layoutYProperty().add(endRegion.heightProperty().divide(2)));
 
-            // Allow right click or delete mode to remove link
+            // Allow right click to remove link
             line.setOnMouseClicked(e -> {
-                if (isDeleteLinkMode) {
-                    removeLink(link);
-                } else if (e.getButton() == MouseButton.SECONDARY) {
+                if (e.getButton() == MouseButton.SECONDARY) {
                     removeLink(link);
                 }
             });
@@ -546,39 +591,7 @@ public class PinboardController {
         canvas.getChildren().remove(line);
     }
 
-    public void savePinboard() {
-        PinboardModel model = new PinboardModel();
-        model.setItems(items);
-        model.setLinks(links);
-
-        // Save template notes
-        Map<String, String> tData = new HashMap<>();
-        for (Map.Entry<String, TextArea> entry : templateNotesMap.entrySet()) {
-            tData.put(entry.getKey(), entry.getValue().getText());
-        }
-        model.setTemplateData(tData);
-
-        // Save template dropped items
-        Map<String, List<String>> droppedItemsMap = new HashMap<>();
-        for (Map.Entry<String, VBox> entry : templateDropTargetsMap.entrySet()) {
-            List<String> items = new ArrayList<>();
-            for (Node child : entry.getValue().getChildren()) {
-                if (child instanceof Label && ((Label) child).getText().startsWith("• ")) {
-                    items.add(((Label) child).getText().substring(2) + "|" + ((Label) child).getTooltip().getText());
-                }
-            }
-            droppedItemsMap.put(entry.getKey(), items);
-        }
-        model.setTemplateDroppedItems(droppedItemsMap);
-
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            mapper.writeValue(getSaveFile(), model);
-            System.out.println("Pinboard saved to " + getSaveFile().getAbsolutePath());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+    // Removed persistence methods
 
     private void syncJournal() {
         // Sync functionality is handled by MainController calling addJournalEntry.
@@ -609,66 +622,5 @@ public class PinboardController {
         this.onSyncRequest = onSyncRequest;
     }
 
-    private void loadPinboardFromFile(File file) {
-        if (!file.exists()) return;
-
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            PinboardModel model = mapper.readValue(file, PinboardModel.class);
-            clearBoard();
-
-            for (PinboardItemModel item : model.getItems()) {
-                addItemToBoard(item);
-                // if (item.getRelatedJournalEntryId() != null) {
-                //    addedJournalEntryIds.add(item.getRelatedJournalEntryId());
-                // }
-            }
-
-            // Re-create links after all items are added
-            for (PinboardLinkModel link : model.getLinks()) {
-                links.add(link);
-                drawLink(link);
-            }
-
-            // Restore template notes
-            if (model.getTemplateData() != null) {
-                for (Map.Entry<String, String> entry : model.getTemplateData().entrySet()) {
-                    TextArea area = templateNotesMap.get(entry.getKey());
-                    if (area != null) {
-                        area.setText(entry.getValue());
-                    }
-                }
-            }
-
-            // Restore dropped items
-            if (model.getTemplateDroppedItems() != null) {
-                for (Map.Entry<String, List<String>> entry : model.getTemplateDroppedItems().entrySet()) {
-                    VBox target = templateDropTargetsMap.get(entry.getKey());
-                    if (target != null) {
-                        // Hide placeholder
-                        target.getChildren().forEach(n -> {
-                            if (n instanceof Label && "Drop Evidence Here".equals(((Label) n).getText())) {
-                                n.setVisible(false);
-                            }
-                        });
-
-                        for (String itemStr : entry.getValue()) {
-                            String[] parts = itemStr.split("\\|", 2);
-                            String text = parts[0];
-                            String tooltip = parts.length > 1 ? parts[1] : "";
-
-                            Label itemLabel = new Label("• " + text);
-                            itemLabel.setTooltip(new Tooltip(tooltip));
-                            itemLabel.setTextFill(Color.LIGHTGRAY);
-                            target.getChildren().add(itemLabel);
-                        }
-                    }
-                }
-            }
-
-            System.out.println("Pinboard loaded.");
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+    // Removed loading methods
 }

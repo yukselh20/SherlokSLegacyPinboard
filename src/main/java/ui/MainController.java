@@ -941,9 +941,10 @@ public class MainController implements GameClientStateListener {
         }
         shutdownEmbeddedServer(); // Ensure server is stopped on app exit
 
-        if (pinboardController != null) {
-            pinboardController.savePinboard();
-        }
+        // Pinboard persistence removed per request (session based)
+        // if (pinboardController != null) {
+        //     pinboardController.savePinboard();
+        // }
 
         System.out.println("\nShutting down application...");
         if (gameClient != null) {
