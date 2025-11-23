@@ -12,6 +12,7 @@ import javafx.scene.input.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
+import javafx.scene.transform.Scale;
 import javafx.stage.Stage;
 
 import java.io.File;
@@ -34,11 +35,13 @@ public class PinboardController {
     private boolean isLinkMode = false;
     private String linkStartId = null;
     private PinboardItemModel draggedItem = null;
+    private PinboardItemModel selectedItem = null;
     private double dragDeltaX, dragDeltaY;
+    private double nextItemX = 50;
+    private double nextItemY = 50;
 
     // UI Components
     private ScrollPane canvasScrollPane;
-    private VBox evidenceListVBox;
     private VBox templateVBox;
 
     private final Set<String> addedJournalEntryIds = new HashSet<>();
@@ -69,6 +72,9 @@ public class PinboardController {
             }
         });
 
+        Button deleteBtn = new Button("Delete");
+        deleteBtn.setOnAction(e -> deleteSelectedItem());
+
         Button clearBtn = new Button("Clear Board");
         clearBtn.setOnAction(e -> clearBoard());
 
@@ -78,59 +84,39 @@ public class PinboardController {
         Button loadBtn = new Button("Load");
         loadBtn.setOnAction(e -> loadPinboard());
 
-        toolBar.getItems().addAll(addNoteBtn, linkModeBtn, new Separator(), clearBtn, new Separator(), saveBtn, loadBtn);
+        toolBar.getItems().addAll(addNoteBtn, linkModeBtn, new Separator(), deleteBtn, clearBtn, new Separator(), saveBtn, loadBtn);
         root.setTop(toolBar);
-
-        // --- Left Panel: Evidence List ---
-        evidenceListVBox = new VBox(5);
-        evidenceListVBox.setPadding(new Insets(10));
-        ScrollPane leftScroll = new ScrollPane(evidenceListVBox);
-        leftScroll.setFitToWidth(true);
-        leftScroll.setPrefWidth(200);
-        leftScroll.getStyleClass().add("pinboard-sidebar");
-
-        VBox leftPanel = new VBox(new Label("Evidence (Drag to Board)"), leftScroll);
-        leftPanel.setPadding(new Insets(5));
-        root.setLeft(leftPanel);
 
         // --- Center: Canvas ---
         canvas.getStyleClass().add("pinboard-canvas");
         canvas.setPrefSize(2000, 2000); // Large canvas
-        canvas.setOnDragOver(e -> {
-            if (e.getDragboard().hasString()) {
-                e.acceptTransferModes(TransferMode.COPY_OR_MOVE);
-            }
-            e.consume();
-        });
-        canvas.setOnDragDropped(e -> {
-            Dragboard db = e.getDragboard();
-            boolean success = false;
-            if (db.hasString()) {
-                // Check if it's from the evidence list or template
-                String content = db.getString();
-                // Simple format: "TYPE|TITLE|CONTENT|REF_ID"
-                String[] parts = content.split("\\|", 4);
-                if (parts.length >= 3) {
-                    double x = e.getX();
-                    double y = e.getY();
-                    PinboardItemModel newItem = new PinboardItemModel();
-                    newItem.setType(PinboardItemModel.ItemType.valueOf(parts[0]));
-                    newItem.setTitle(parts[1]);
-                    newItem.setContent(parts[2]);
-                    if (parts.length > 3) newItem.setRelatedJournalEntryId(parts[3]);
-                    newItem.setX(x);
-                    newItem.setY(y);
 
-                    addItemToBoard(newItem);
-                    success = true;
-                }
-            }
-            e.setDropCompleted(success);
-            e.consume();
-        });
+        // Zoom support
+        Scale scale = new Scale(1, 1);
+        canvas.getTransforms().add(scale);
 
         canvasScrollPane = new ScrollPane(canvas);
         canvasScrollPane.setPannable(true); // Allow panning with mouse drag when not on an item
+        canvasScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        canvasScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+
+        // Mouse wheel zoom
+        canvasScrollPane.addEventFilter(ScrollEvent.SCROLL, e -> {
+            if (e.isControlDown()) {
+                double delta = e.getDeltaY();
+                double scaleFactor = (delta > 0) ? 1.1 : 0.9;
+                double newScaleX = scale.getX() * scaleFactor;
+                double newScaleY = scale.getY() * scaleFactor;
+
+                // Clamp zoom
+                if (newScaleX >= 0.5 && newScaleX <= 3.0) {
+                    scale.setX(newScaleX);
+                    scale.setY(newScaleY);
+                }
+                e.consume();
+            }
+        });
+
         root.setCenter(canvasScrollPane);
 
         // --- Right Panel: Final Exam Template ---
@@ -229,8 +215,9 @@ public class PinboardController {
 
     public void reset() {
         clearBoard();
-        evidenceListVBox.getChildren().clear();
         addedJournalEntryIds.clear();
+        nextItemX = 50;
+        nextItemY = 50;
         // Clear template notes manually if we want to reset them too?
         // For now, clearBoard only clears the canvas items.
         // A full reset might need to clear the right panel text areas too.
@@ -246,7 +233,6 @@ public class PinboardController {
 
     public void addJournalEntry(JournalEntryDTO entry) {
         // Prevent duplicates
-        // Use hash of text + timestamp as ID
         String refId = String.valueOf(Objects.hash(entry.getText(), entry.getTimestamp()));
         if (addedJournalEntryIds.contains(refId)) {
             return;
@@ -258,41 +244,30 @@ public class PinboardController {
         String smartTitle = "Journal Entry";
         if (text.toLowerCase().contains("ask") || text.toLowerCase().contains("question")) {
             smartTitle = "Questioning";
-            // Try to extract name? For now just generic type.
         } else if (text.toLowerCase().contains("deduce") || text.toLowerCase().contains("deduction")) {
             smartTitle = "Deduction";
         } else if (text.toLowerCase().contains("found") || text.toLowerCase().contains("examine")) {
             smartTitle = "Evidence";
         }
 
-        // Create a draggable card in the left sidebar
-        HBox card = new HBox();
-        card.getStyleClass().add("pinboard-item");
-        card.setStyle("-fx-background-color: #e0e0e0; -fx-cursor: hand;");
+        // Directly add to board
+        PinboardItemModel item = new PinboardItemModel();
+        item.setType(PinboardItemModel.ItemType.EVIDENCE);
+        item.setTitle(smartTitle);
+        item.setContent(text);
+        item.setRelatedJournalEntryId(refId);
+        item.setX(nextItemX);
+        item.setY(nextItemY);
+        item.setWidth(200);
+        item.setHeight(150);
 
-        VBox contentBox = new VBox(2);
-        Label title = new Label(smartTitle);
-        title.getStyleClass().add("pinboard-item-title");
-        Label content = new Label(text);
-        content.getStyleClass().add("pinboard-item-content");
-        content.setMaxWidth(160);
-        content.setWrapText(true);
+        addItemToBoard(item);
 
-        contentBox.getChildren().addAll(title, content);
-        card.getChildren().add(contentBox);
-
-        // Drag source
-        final String finalSmartTitle = smartTitle;
-        card.setOnDragDetected(e -> {
-            Dragboard db = card.startDragAndDrop(TransferMode.COPY);
-            ClipboardContent cc = new ClipboardContent();
-            // Format: TYPE|TITLE|CONTENT|REF_ID
-            cc.putString("EVIDENCE|" + finalSmartTitle + "|" + text + "|" + refId);
-            db.setContent(cc);
-            e.consume();
-        });
-
-        evidenceListVBox.getChildren().add(0, card); // Add to top
+        // Cascade positioning
+        nextItemX += 20;
+        nextItemY += 20;
+        if (nextItemX > 400) nextItemX = 50;
+        if (nextItemY > 400) nextItemY = 50;
     }
 
     private void createNoteAtCenter() {
@@ -360,10 +335,13 @@ public class PinboardController {
             e.consume(); // Prevent drag of parent
         });
         resizeHandle.setOnMouseDragged(e -> {
-            // This logic is tricky because handle moves.
-            // Let's use the box's layout
-            double newW = Math.max(100, e.getSceneX() - box.localToScene(0,0).getX());
-            double newH = Math.max(80, e.getSceneY() - box.localToScene(0,0).getY());
+            // Convert mouse scene coordinates to canvas local coordinates to account for zoom (scale)
+            Point2D mouseLocal = canvas.sceneToLocal(e.getSceneX(), e.getSceneY());
+
+            // Calculate new size relative to the item's position on the canvas
+            double newW = Math.max(100, mouseLocal.getX() - item.getX());
+            double newH = Math.max(80, mouseLocal.getY() - item.getY());
+
             box.setPrefSize(newW, newH);
             item.setWidth(newW);
             item.setHeight(newH);
@@ -380,17 +358,64 @@ public class PinboardController {
         // Dragging logic on the canvas
         makeDraggable(box, item);
 
-        // Link logic
+        // Drag Here Hint (small text in title area)
+        Label dragHint = new Label("Drag to Template");
+        dragHint.setStyle("-fx-font-size: 8px; -fx-text-fill: gray; -fx-cursor: hand;");
+        dragHint.setOnDragDetected(e -> {
+            Dragboard db = dragHint.startDragAndDrop(TransferMode.COPY);
+            ClipboardContent cc = new ClipboardContent();
+            // Format: TYPE|TITLE|CONTENT|REF_ID
+            String refId = item.getRelatedJournalEntryId() != null ? item.getRelatedJournalEntryId() : "NOTE";
+            cc.putString("EVIDENCE|" + item.getTitle() + "|" + item.getContent() + "|" + refId);
+            db.setContent(cc);
+            e.consume();
+        });
+
+        StackPane titleStack = new StackPane(titleField, dragHint);
+        StackPane.setAlignment(dragHint, Pos.CENTER_RIGHT);
+        StackPane.setMargin(dragHint, new Insets(0, 5, 0, 0));
+
+        // Link logic & Selection
         box.setOnMouseClicked(e -> {
             if (isLinkMode) {
                 handleLinkClick(item);
-            } else if (e.getClickCount() == 2 && e.getButton() == MouseButton.SECONDARY) {
-                // Remove item?
-                removeItem(item);
+            } else {
+                selectItem(item, box);
             }
+            e.consume();
         });
 
+        box.getChildren().clear(); // Rebuild children with hint
+        box.getChildren().addAll(titleStack, contentArea, bottomBar);
+
+        // Dragging logic
+        makeDraggable(box, item);
+
         return box;
+    }
+
+    private void selectItem(PinboardItemModel item, Node node) {
+        // Deselect old
+        if (selectedItem != null) {
+            Node oldNode = itemNodeMap.get(selectedItem.getId());
+            if (oldNode != null) {
+                oldNode.setStyle(oldNode.getStyle().replace("-fx-effect: dropshadow(three-pass-box, red, 10, 0, 0, 0);", ""));
+            }
+        }
+
+        selectedItem = item;
+
+        // Highlight new
+        if (selectedItem != null) {
+            node.setStyle(node.getStyle() + "-fx-effect: dropshadow(three-pass-box, red, 10, 0, 0, 0);");
+        }
+    }
+
+    private void deleteSelectedItem() {
+        if (selectedItem != null) {
+            removeItem(selectedItem);
+            selectedItem = null;
+        }
     }
 
     private void makeDraggable(Node node, PinboardItemModel item) {
