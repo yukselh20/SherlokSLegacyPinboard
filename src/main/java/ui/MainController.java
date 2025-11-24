@@ -1346,10 +1346,10 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onHostGameOptions() {
-        currentMultiplayerSubState = UIMultiplayerSubState.HOST_OPTIONS;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.HOST_OPTIONS;
+            currentState = UIState.MULTIPLAYER_MENU;
+            updateUIVisibility();
             terminalTextArea.clear();
             terminalTextArea.appendText("--- Host Game Options ---\n");
             terminalTextArea.appendText("1. Host Public Game\n");
@@ -1372,10 +1372,10 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onCaseSelection(List<JsonDTO.CaseFile> cases) {
-        currentMultiplayerSubState = UIMultiplayerSubState.CASE_SELECTION;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.CASE_SELECTION;
+            currentState = UIState.MULTIPLAYER_MENU;
+            updateUIVisibility();
             terminalTextArea.clear();
             terminalTextArea.appendText("--- Select a Case ---\n");
             VBox caseSelectionBox = new VBox(15);
@@ -1400,10 +1400,10 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onLanguageSelection(JsonDTO.CaseFile caseFile) {
-        currentMultiplayerSubState = UIMultiplayerSubState.LANGUAGE_SELECTION;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.LANGUAGE_SELECTION;
+            currentState = UIState.MULTIPLAYER_MENU;
+            updateUIVisibility();
             terminalTextArea.clear();
             terminalTextArea.appendText("--- Select a Language for " + caseFile.getUniversalTitle() + " ---\n");
             VBox langSelectionBox = new VBox(15);
@@ -1431,8 +1431,8 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onHostingLobby(String gameCode) {
-        currentMultiplayerSubState = UIMultiplayerSubState.HOSTING_LOBBY;
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.HOSTING_LOBBY;
             VBox lobbyBox = new VBox(15);
             lobbyBox.setAlignment(Pos.CENTER);
             Label label = new Label("Waiting for another player to join...");
@@ -1450,10 +1450,10 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onJoinGameOptions() {
-        currentMultiplayerSubState = UIMultiplayerSubState.JOIN_OPTIONS;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.JOIN_OPTIONS;
+            currentState = UIState.MULTIPLAYER_MENU;
+            updateUIVisibility();
             terminalTextArea.clear();
             terminalTextArea.appendText("--- Join Game Options ---\n");
             terminalTextArea.appendText("1. Join Public Game\n");
@@ -1476,10 +1476,10 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onPublicGamesList(List<PublicGameInfoDTO> games) {
-        currentMultiplayerSubState = UIMultiplayerSubState.PUBLIC_GAMES_LIST;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.PUBLIC_GAMES_LIST;
+            currentState = UIState.MULTIPLAYER_MENU;
+            updateUIVisibility();
             terminalTextArea.clear();
             terminalTextArea.appendText("--- Public Games ---\n");
             VBox gamesBox = new VBox(15);
@@ -1505,10 +1505,10 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onPrivateGameEntry() {
-        currentMultiplayerSubState = UIMultiplayerSubState.PRIVATE_GAME_ENTRY;
-        currentState = UIState.MULTIPLAYER_MENU;
-        updateUIVisibility();
         Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.PRIVATE_GAME_ENTRY;
+            currentState = UIState.MULTIPLAYER_MENU;
+            updateUIVisibility();
             VBox privateGameBox = new VBox(15);
             privateGameBox.setAlignment(Pos.CENTER);
             Label label = new Label("Enter Private Game Code:");
@@ -1524,21 +1524,23 @@ public class MainController implements GameClientStateListener {
 
     @Override
     public void onLobby() {
-        currentMultiplayerSubState = UIMultiplayerSubState.IN_LOBBY;
+        Platform.runLater(() -> {
+            currentMultiplayerSubState = UIMultiplayerSubState.IN_LOBBY;
+        });
     }
 
     @Override
     public void onEnterGame(RoomDescriptionDTO initialRoom) {
-        isSinglePlayer = false;
-        currentMultiplayerSubState = UIMultiplayerSubState.IN_GAME;
-        currentState = UIState.GAME_MULTI;
-
-        if (gameClient != null) {
-            initializePinboardNetworking();
-            gameClient.sendPinboardStateRequest();
-        }
-
         Platform.runLater(() -> {
+            isSinglePlayer = false;
+            currentMultiplayerSubState = UIMultiplayerSubState.IN_GAME;
+            currentState = UIState.GAME_MULTI;
+
+            if (gameClient != null) {
+                initializePinboardNetworking();
+                gameClient.sendPinboardStateRequest();
+            }
+
             roomPane.getChildren().clear();
             roomPane.getChildren().add(roomView);
             tasksButton.setVisible(true);
