@@ -10,6 +10,10 @@ public class PinboardStateResponseCommand implements Command {
     private PinboardStateDTO state;
     private String playerId;
 
+    // Default constructor for deserialization
+    public PinboardStateResponseCommand() {
+    }
+
     public PinboardStateResponseCommand(PinboardStateDTO state) {
         this.state = state;
     }
