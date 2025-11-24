@@ -5,7 +5,10 @@ import client.util.CommandParserClient;
 import common.NetworkConstants;
 import common.SerializationUtils;
 import common.commands.*;
+import common.commands.pinboard.*;
 import common.dto.*;
+import common.dto.pinboard.PinboardStateDTO;
+import common.dto.pinboard.PinboardUpdateDTO;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.ConnectException;
@@ -44,6 +47,8 @@ public class GameClient implements Runnable {
   private Thread networkListenerThread;
   private Scanner consoleScanner;
   private GameClientStateListener listener;
+  private java.util.function.Consumer<PinboardUpdateDTO> pinboardUpdateListener;
+  private java.util.function.Consumer<PinboardStateDTO> pinboardStateListener;
 
   // GUI input queue for JavaFX integration
   private final BlockingQueue<String> guiInputQueue = new LinkedBlockingQueue<>();
@@ -97,6 +102,22 @@ public class GameClient implements Runnable {
 
   public void setListener(GameClientStateListener listener) {
     this.listener = listener;
+  }
+
+  public void setPinboardUpdateListener(java.util.function.Consumer<PinboardUpdateDTO> listener) {
+      this.pinboardUpdateListener = listener;
+  }
+
+  public void setPinboardStateListener(java.util.function.Consumer<PinboardStateDTO> listener) {
+      this.pinboardStateListener = listener;
+  }
+
+  public void sendPinboardUpdate(PinboardUpdateDTO update) {
+      sendToServer(new UpdatePinboardCommand(update));
+  }
+
+  public void sendPinboardStateRequest() {
+      sendToServer(new RequestPinboardStateCommand());
   }
 
   public void enqueueUserInput(String input) {
@@ -995,6 +1016,14 @@ public class GameClient implements Runnable {
                 + this.playerId
                 + ", Display Name: "
                 + this.playerDisplayId);
+      } else if (message instanceof UpdatePinboardCommand) {
+          if (pinboardUpdateListener != null) {
+              pinboardUpdateListener.accept(((UpdatePinboardCommand) message).getUpdate());
+          }
+      } else if (message instanceof PinboardStateResponseCommand) {
+          if (pinboardStateListener != null) {
+              pinboardStateListener.accept(((PinboardStateResponseCommand) message).getState());
+          }
       } else {
         printToConsole("[UNHANDLED DTO] " + message.getClass().getSimpleName());
       }

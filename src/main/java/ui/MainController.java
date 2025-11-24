@@ -940,6 +940,12 @@ public class MainController implements GameClientStateListener {
             ((UdpLanGameDiscoveryService) discoveryService).stop();
         }
         shutdownEmbeddedServer(); // Ensure server is stopped on app exit
+
+        // Pinboard persistence removed per request (session based)
+        // if (pinboardController != null) {
+        //     pinboardController.savePinboard();
+        // }
+
         System.out.println("\nShutting down application...");
         if (gameClient != null) {
             gameClient.stopClient();
@@ -1060,6 +1066,7 @@ public class MainController implements GameClientStateListener {
 
     private void openPinboardWindow() {
         if (pinboardController == null) {
+            System.out.println("Initializing Pinboard Controller...");
             pinboardController = new PinboardController();
         }
 
@@ -1080,6 +1087,7 @@ public class MainController implements GameClientStateListener {
             }
         }
 
+        pinboardController.setOnSyncRequest(this::syncPinboardData);
         pinboardController.show();
     }
 
@@ -1190,24 +1198,29 @@ public class MainController implements GameClientStateListener {
         // Also sync Pinboard if active
         Platform.runLater(() -> {
             if (pinboardController != null) {
-                // Re-sync all entries (inefficient but safe for now)
-                 if (isSinglePlayer && singlePlayerGame != null) {
-                    List<common.dto.JournalEntryDTO> entries = singlePlayerGame.getGameContext().getJournalEntries(null);
-                    if (entries != null) {
-                        for (common.dto.JournalEntryDTO entry : entries) {
-                            pinboardController.addJournalEntry(entry);
-                        }
-                    }
-                } else if (!isSinglePlayer && gameClient != null) {
-                    List<common.dto.JournalEntryDTO> entries = gameClient.getJournalEntries();
-                    if (entries != null) {
-                        for (common.dto.JournalEntryDTO entry : entries) {
-                            pinboardController.addJournalEntry(entry);
-                        }
-                    }
-                }
+                syncPinboardData();
             }
         });
+    }
+
+    private void syncPinboardData() {
+        if (pinboardController == null) return;
+
+        if (isSinglePlayer && singlePlayerGame != null) {
+            List<common.dto.JournalEntryDTO> entries = singlePlayerGame.getGameContext().getJournalEntries(null);
+            if (entries != null) {
+                for (common.dto.JournalEntryDTO entry : entries) {
+                    pinboardController.addJournalEntry(entry);
+                }
+            }
+        } else if (!isSinglePlayer && gameClient != null) {
+            List<common.dto.JournalEntryDTO> entries = gameClient.getJournalEntries();
+            if (entries != null) {
+                for (common.dto.JournalEntryDTO entry : entries) {
+                    pinboardController.addJournalEntry(entry);
+                }
+            }
+        }
     }
 
     private void updateRightPanel(RoomDescriptionDTO roomDescription) {
@@ -1519,6 +1532,12 @@ public class MainController implements GameClientStateListener {
         isSinglePlayer = false;
         currentMultiplayerSubState = UIMultiplayerSubState.IN_GAME;
         currentState = UIState.GAME_MULTI;
+
+        if (gameClient != null) {
+            initializePinboardNetworking();
+            gameClient.sendPinboardStateRequest();
+        }
+
         Platform.runLater(() -> {
             roomPane.getChildren().clear();
             roomPane.getChildren().add(roomView);
@@ -1530,6 +1549,33 @@ public class MainController implements GameClientStateListener {
             exitButton.setVisible(true);
             rightInfoPanel.setVisible(true);
             updateRoomView(initialRoom);
+        });
+    }
+
+    private void initializePinboardNetworking() {
+        if (pinboardController == null) {
+            pinboardController = new PinboardController();
+        }
+
+        // 1. Outgoing updates: Pinboard -> Server
+        pinboardController.setOnUpdateCallback(update -> {
+            if (gameClient != null) {
+                gameClient.sendPinboardUpdate(update);
+            }
+        });
+
+        // 2. Incoming updates: Server -> Pinboard
+        gameClient.setPinboardUpdateListener(update -> {
+            if (pinboardController != null) {
+                pinboardController.applyUpdate(update);
+            }
+        });
+
+        // 3. Initial State: Server -> Pinboard
+        gameClient.setPinboardStateListener(state -> {
+            if (pinboardController != null) {
+                Platform.runLater(() -> pinboardController.applyState(state));
+            }
         });
     }
 
