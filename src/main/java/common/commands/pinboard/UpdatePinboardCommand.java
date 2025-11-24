@@ -10,6 +10,10 @@ public class UpdatePinboardCommand implements Command {
     private PinboardUpdateDTO update;
     private String playerId;
 
+    // Default constructor for deserialization
+    public UpdatePinboardCommand() {
+    }
+
     public UpdatePinboardCommand(PinboardUpdateDTO update) {
         this.update = update;
     }
